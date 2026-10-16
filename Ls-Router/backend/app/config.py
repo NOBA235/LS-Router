@@ -14,7 +14,13 @@ class Settings(BaseSettings):
     falkordb_graph: str = "landslide"
     falkordb_timeout_s: float = 2.0
 
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-3-5-sonnet-latest"
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+

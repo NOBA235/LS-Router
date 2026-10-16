@@ -4,7 +4,7 @@ Graph-backed landslide-routing prototype for the Dimapur–Kohima corridor (NH29
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
-**Current state: Phase 2 (graph algorithms and tools).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, and the eleven graph tools (`backend/app/graph`). There is no agent, MCP server or HTTP tool API yet, and the map still shows no project data (Phase 6).
+**Current state: Phase 3 (location resolver and graph-backed agent loop).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), and the Phase 3 natural-language location resolver + agent orchestration loop (`backend/app/agent`). There is no MCP server or HTTP tool API yet, and the map still shows no project data (Phase 6).
 
 ## Prerequisites (Windows)
 
@@ -52,7 +52,7 @@ npm run dev
 | Map | open http://localhost:5173 | Basemap framed on Dimapur–Kohima, "No corridor data loaded" notice, green backend status line |
 | FalkorDB Browser (optional) | open http://localhost:3000 | Browser UI; connect to host `localhost`, port `6379` |
 
-Backend tests (venv active, from `backend`): `python -m pytest -v`. The one `integration` test needs the Docker container and skips itself if FalkorDB is unreachable.
+Backend tests (venv active, from `backend`): `python -m pytest -v`. The `integration` tests need the Docker container and skip themselves if FalkorDB is unreachable.
 Frontend type-check and build (from `frontend`): `npm run build`.
 
 ## Phase 1: build and seed the graph
@@ -75,7 +75,7 @@ python data\seed.py
 - Inspect in FalkorDB Browser (http://localhost:3000) with the queries in `data\queries.cypher`.
 - To rebuild from scratch: `python data\seed.py --reset --yes` (deletes everything in the graph).
 
-Tests (no database or network needed, except one test that skips itself without FalkorDB):
+Tests (no database or network needed, except `integration` tests that skip themselves without FalkorDB):
 
 ```bat
 cd backend
@@ -98,6 +98,28 @@ python -m app.graph.cli audit_closure "{\"event_id\": \"<same id>\"}"
 ```
 
 `python -m app.graph.cli probe_capabilities` lists the `algo.*` procedures your FalkorDB build actually has. Tests: `python -m pytest -v` (the `integration`-marked ones need FalkorDB and skip themselves without it).
+
+## Phase 3: the location resolver and graph-backed agent
+
+Design, resolution ladder, ambiguity gating, and provenance schema: [docs/PHASE3.md](docs/PHASE3.md).
+
+Run from `backend\` with the virtualenv active:
+
+```bat
+cd backend
+.venv\Scripts\activate.bat
+python -m app.agent.cli --fixture --demo
+python -m app.agent.cli --fixture "Landslide near NH29 kilometre 42"
+python -m app.agent.cli --fixture --confirm-id seg:s2 "Landslide near NH29 kilometre 42"
+python -m app.agent.cli --fixture --json "Rockfall on Chathe Bridge"
+```
+
+When FalkorDB is running and seeded (or using `--dataset ..\data\cache\normalized_corridor.json` offline):
+
+```bat
+python -m app.agent.cli "Landslide near NH29 kilometre 42"
+python -m app.agent.cli --confirm-id <candidate_id> "Landslide near NH29 kilometre 42"
+```
 
 ## Stop
 
