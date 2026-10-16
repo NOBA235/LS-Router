@@ -4,7 +4,7 @@ Graph-backed landslide-routing prototype for the Dimapur–Kohima corridor (NH29
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
-**Current state: Phase 3 (location resolver and graph-backed agent loop).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), and the Phase 3 natural-language location resolver + agent orchestration loop (`backend/app/agent`). There is no MCP server or HTTP tool API yet, and the map still shows no project data (Phase 6).
+**Current state: Phase 4 (Model Context Protocol server).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), and the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`). There is no HTTP tool API yet, and the map still shows no project data (Phase 6).
 
 ## Prerequisites (Windows)
 
@@ -114,11 +114,31 @@ python -m app.agent.cli --fixture --confirm-id seg:s2 "Landslide near NH29 kilom
 python -m app.agent.cli --fixture --json "Rockfall on Chathe Bridge"
 ```
 
+## Phase 4: Model Context Protocol (MCP) server
+
+Architecture, tool schemas, and handoff logging: [docs/PHASE4.md](docs/PHASE4.md) and [mcp/README.md](mcp/README.md).
+
+Run from `backend\` with the virtualenv active:
+
+```bat
+cd backend
+.venv\Scripts\activate.bat
+
+:: 1. Discover all 12 MCP tools over stdio child process:
+python -m app.mcp_bridge.cli --fixture --transport stdio list-tools
+
+:: 2. Invoke a single tool through MCP ClientSession:
+python -m app.mcp_bridge.cli --fixture --transport stdio call find_weak_links "{\"corridor_id\": \"corr-synthetic\", \"top_k\": 3}"
+
+:: 3. Run the end-to-end multi-step demonstration through MCP:
+python -m app.mcp_bridge.cli --fixture --transport stdio demo
+```
+
 When FalkorDB is running and seeded (or using `--dataset ..\data\cache\normalized_corridor.json` offline):
 
 ```bat
-python -m app.agent.cli "Landslide near NH29 kilometre 42"
-python -m app.agent.cli --confirm-id <candidate_id> "Landslide near NH29 kilometre 42"
+python -m app.mcp_bridge.cli demo
+python -m app.agent.cli --mcp-transport stdio "Landslide near NH29 kilometre 42"
 ```
 
 ## Stop

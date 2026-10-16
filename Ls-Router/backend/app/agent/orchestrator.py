@@ -42,7 +42,7 @@ SAFETY_DISCLAIMER = (
 
 
 class LandslideAgent:
-    """Orchestrates location resolution and the eleven graph tools with strict provenance tracking."""
+    """Orchestrates location resolution and the eleven graph tools through MCP with strict provenance tracking."""
 
     def __init__(
         self,
@@ -52,17 +52,39 @@ class LandslideAgent:
         id_factory: Callable[[], str] | None = None,
         llm_client=None,
         tool_executor: Callable[[str, dict], dict] | None = None,
+        use_mcp: bool = True,
+        mcp_client=None,
+        mcp_transport: str = "memory",
+        mcp_timeout_s: float = 15.0,
     ):
         self.store = store
         self.toolbox = Toolbox(store, clock=clock, id_factory=id_factory)
         self.resolver = LocationResolver(store)
         self.llm_client = llm_client
         self._external_executor = tool_executor
+        self.use_mcp = bool(use_mcp and tool_executor is None)
+        if mcp_client is not None:
+            self.mcp_client = mcp_client
+            self.use_mcp = True
+        elif self.use_mcp:
+            from ..mcp_bridge.client import MCPToolClient
+
+            self.mcp_client = MCPToolClient(
+                store,
+                clock=clock,
+                id_factory=id_factory,
+                transport=mcp_transport,
+                timeout_s=mcp_timeout_s,
+            )
+        else:
+            self.mcp_client = None
 
     # ------------------------------------------------------------------ tool dispatch
-    def _dispatch_tool(self, name: str, kwargs: dict) -> dict:
+    def _dispatch_tool(self, name: str, kwargs: dict, reason: str = "") -> dict:
         if self._external_executor is not None:
             return self._external_executor(name, kwargs)
+        if self.use_mcp and self.mcp_client is not None:
+            return self.mcp_client.call_tool(name, kwargs, reason=reason)
         if name == "resolve_location":
             return self.resolver.resolve_location(**kwargs)
         if hasattr(self.toolbox, name):
@@ -71,10 +93,16 @@ class LandslideAgent:
 
     def _call(self, trace: list[dict], name: str, reason: str, **kwargs) -> dict:
         clean_kwargs = {k: v for k, v in kwargs.items() if v is not None}
-        env = self._dispatch_tool(name, clean_kwargs)
+        env = self._dispatch_tool(name, clean_kwargs, reason=reason)
+        transport = (
+            self.mcp_client.transport_label
+            if (self.use_mcp and self.mcp_client is not None)
+            else "direct_python"
+        )
         trace.append({
             "step": len(trace) + 1,
             "tool": name,
+            "transport": transport,
             "arguments": clean_kwargs,
             "reason": reason,
             "explanation": env.get("explanation", ""),
@@ -84,6 +112,7 @@ class LandslideAgent:
             "warnings": env.get("warnings", []),
             "result": env.get("result", {}),
             "graph": env.get("graph", {"nodes": [], "edges": []}),
+            "mcp_handoff": env.get("mcp_handoff"),
         })
         return env
 
@@ -989,12 +1018,33 @@ class LandslideAgent:
             },
         }
 
+        run_handoffs = [s["mcp_handoff"] for s in trace if s.get("mcp_handoff") is not None]
+        if self.use_mcp and self.mcp_client is not None:
+            mcp_summary = {
+                "enabled": True,
+                "transport": self.mcp_client.transport_label,
+                "server_info": self.mcp_client.server_info,
+                "discovered_tools": [t["name"] for t in self.mcp_client.discovered_tools],
+                "handoff_count": len(run_handoffs),
+                "handoffs": run_handoffs,
+            }
+        else:
+            mcp_summary = {
+                "enabled": False,
+                "transport": "direct_python",
+                "server_info": None,
+                "discovered_tools": [],
+                "handoff_count": 0,
+                "handoffs": [],
+            }
+
         report = {
             "disclaimer": SAFETY_DISCLAIMER,
             "system_prompt": SYSTEM_PROMPT,
             "status": status,
             "query": prompt,
             "parsed_event": parsed.to_dict(),
+            "mcp": mcp_summary,
             "resolution": resolution,
             "closure": closure,
             "affected_settlements": affected_settlements,
@@ -1013,6 +1063,7 @@ class LandslideAgent:
                 {
                     "step": s["step"],
                     "tool": s["tool"],
+                    "transport": s.get("transport", "direct_python"),
                     "arguments": s["arguments"],
                     "reason": s["reason"],
                     "explanation": s["explanation"],
@@ -1020,6 +1071,7 @@ class LandslideAgent:
                     "cypher_count": len(s["cypher"]),
                     "query_names": (s.get("params") or {}).get("query_names", []),
                     "warnings": s["warnings"],
+                    "mcp_handoff": s.get("mcp_handoff"),
                 }
                 for s in trace
             ],
@@ -1032,11 +1084,20 @@ class LandslideAgent:
     @staticmethod
     def format_markdown(report: dict) -> str:
         """Render a concise, human-readable Markdown summary grounded strictly in `report`."""
+        mcp_info = report.get("mcp") or {}
+        transport_str = mcp_info.get("transport", "direct_python")
         lines = [
             f"> **{report['disclaimer']}**",
             "",
             f"## Landslide Router Report -- Status: `{report['status']}`",
             f"- **Input**: {report['query']}",
+            f"- **Tool transport**: `{transport_str}`"
+            + (
+                f" (server=`{mcp_info['server_info']['name']}`, discovered_tools={len(mcp_info.get('discovered_tools', []))}, "
+                f"handoffs={mcp_info.get('handoff_count', 0)})"
+                if mcp_info.get("enabled") and mcp_info.get("server_info")
+                else ""
+            ),
             f"- **Tools executed ({report['provenance']['total_tool_calls']})**: "
             + (" -> ".join(f"`{t}`" for t in report["provenance"]["tools_called"]) or "none"),
         ]
@@ -1186,6 +1247,15 @@ class LandslideAgent:
                 f"remembered_at=`{rc['remembered_at']}`, failure_records_created={rc['failure_records_created']}"
             )
 
+        if mcp_info.get("enabled") and mcp_info.get("handoffs"):
+            lines.append("")
+            lines.append("### MCP Handoffs (Agent Reasoning <-> Graph Operations)")
+            for h in mcp_info["handoffs"]:
+                lines.append(
+                    f"- **`{h['handoff_id']}` (`{h['tool']}`, `{h['transport']}`, `{h['duration_ms']} ms`)**: "
+                    f"reason=\"{h['selection_reason']}\" -> {h['decision_impact']}"
+                )
+
         prov = report.get("provenance") or {}
         cs = prov.get("confidence_summary") or {}
         lines.append("")
@@ -1204,3 +1274,4 @@ class LandslideAgent:
                 lines.append(f"- {w}")
 
         return "\n".join(lines)
+

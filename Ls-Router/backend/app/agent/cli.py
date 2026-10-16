@@ -205,16 +205,26 @@ def main(argv=None, graph=None, out=print) -> int:
     ap.add_argument("--demo", action="store_true", help="Run the reproducible multi-step demonstration")
     ap.add_argument("--target-segment", default=None, help="Explicitly confirmed RoadSegment ID")
     ap.add_argument("--target-bridge", default=None, help="Explicitly confirmed Bridge ID")
+    ap.add_argument("--confirm-id", default=None, help="Alias for --target-segment or --target-bridge")
+    ap.add_argument("--clear-after", action="store_true", help="Resolve and audit the created closure after reporting")
     ap.add_argument("--lat", type=float, default=None, help="Optional latitude")
     ap.add_argument("--lon", type=float, default=None, help="Optional longitude")
     ap.add_argument("--month", default=None, help="Optional month (1-12 or name) for seasonal risk")
     ap.add_argument("--top-k", type=int, default=5, help="Top-K weak links to rank (default: 5)")
     ap.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format")
+    ap.add_argument("--json", action="store_true", help="Shorthand for --format json")
     ap.add_argument("--graph", default=os.environ.get("FALKORDB_GRAPH", "landslide"), help="FalkorDB graph name")
     ap.add_argument("--dataset", type=Path, default=None, help="Run against a normalized.json dataset file in memory")
     ap.add_argument("--fixture", action="store_true", help="Run against the deterministic synthetic test fixture in memory")
     ap.add_argument("--planner", choices=["deterministic", "auto"], default="deterministic", help="Planner mode")
+    ap.add_argument(
+        "--mcp-transport",
+        choices=["memory", "stdio", "direct"],
+        default="memory",
+        help="Invoke tools through MCP in-memory streams ('memory'), MCP stdio subprocess ('stdio'), or direct Python ('direct')",
+    )
     a = ap.parse_args(argv)
+    fmt = "json" if a.json else a.format
 
     if not a.demo and not (a.prompt and a.prompt.strip()):
         ap.error("Provide a natural-language prompt or pass --demo.")
@@ -239,22 +249,57 @@ def main(argv=None, graph=None, out=print) -> int:
 
     store = FalkorStore(graph)
     llm_client = llm_client_from_env() if a.planner == "auto" else None
-    agent = LandslideAgent(store, llm_client=llm_client)
+    mcp_client = None
+    use_mcp = a.mcp_transport != "direct"
+    if a.mcp_transport == "stdio":
+        from ..mcp_bridge.client import MCPToolClient
+
+        stdio_args: list[str] = []
+        if a.fixture:
+            stdio_args.append("--fixture")
+        elif a.dataset is not None:
+            stdio_args.extend(["--dataset", str(a.dataset.resolve())])
+        else:
+            stdio_args.extend(["--graph", a.graph])
+        mcp_client = MCPToolClient(store, transport="stdio", stdio_args=stdio_args)
+
+    agent = LandslideAgent(
+        store,
+        llm_client=llm_client,
+        use_mcp=use_mcp,
+        mcp_client=mcp_client,
+        mcp_transport="memory" if a.mcp_transport == "direct" else a.mcp_transport,
+    )
+
+    target_seg = a.target_segment
+    target_br = a.target_bridge
+    if a.confirm_id and not (target_seg or target_br):
+        if a.confirm_id.startswith("bridge:") or a.confirm_id.startswith("BR"):
+            target_br = a.confirm_id
+        else:
+            target_seg = a.confirm_id
 
     try:
         if a.demo:
-            return _run_demo(agent, a.format, out)
+            return _run_demo(agent, fmt, out)
 
         report = agent.run(
             a.prompt,
             lat=a.lat,
             lon=a.lon,
-            target_segment_id=a.target_segment,
-            target_bridge_id=a.target_bridge,
+            target_segment_id=target_seg,
+            target_bridge_id=target_br,
             month=a.month,
             top_k=a.top_k,
         )
-        if a.format == "json":
+        if a.clear_after and report.get("closure") and report["closure"].get("event"):
+            ev_id = report["closure"]["event"]["id"]
+            cleanup = agent.run(f"Clear closure {ev_id} and audit")
+            report["closure_resolution"] = cleanup.get("closure_resolution")
+            report["closure_audit"] = cleanup.get("closure_audit")
+            report["markdown_report"] = agent.format_markdown(report)
+
+        if fmt == "json":
             out(json.dumps(report, indent=2, ensure_ascii=False, default=str))
         else:
             out(report["markdown_report"].replace("\u2014", "--").replace("\u2013", "-"))
@@ -265,7 +310,11 @@ def main(argv=None, graph=None, out=print) -> int:
     except (ValueError, TypeError) as exc:
         out(json.dumps({"error": {"code": "bad_arguments", "message": str(exc)}}, indent=2))
         return 2
+    finally:
+        if mcp_client is not None:
+            mcp_client.close()
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
