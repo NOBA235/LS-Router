@@ -1,0 +1,98 @@
+{
+  "_about": "Documented, publicly reported landslide/washout events on or near the corridor, compiled from web search results during Phase 1. Everything here is confidence=unverified: a person must open each source and confirm before anything is marked verified. No coordinates are given because the sources give none; events attach to a graph Place only when a source names it. Casualty details are intentionally omitted.",
+  "events": [
+    {
+      "id": "obs-2024-08-dzudza-landslide",
+      "description": "Landslide at Dzudza on NH-29 between Kohima and Dimapur. An official order closed a short stretch for landslide removal, and the Kohima Deputy Commissioner later reported complete blockage and advised light vehicles to use alternate routes. A fresh mudslide after heavy rain on 22 August hindered restoration.",
+      "cause": "landslide",
+      "started_at": "2024-08",
+      "date_precision": "month",
+      "date_note": "Sources differ: closure order for removal work covers 16-18 Aug 2024; a PTI report published 20 Aug 2024 places a blockage on Monday 19 Aug; a regional report mentions a fresh mudslide on 22 Aug.",
+      "location_text": "NH-29 near Dzudza bridge, Sechu Zubza; chainage km 163+980 to 164+030 per the Kohima district advisory",
+      "place_names": ["Dzüdza"],
+      "sources": [
+        {"title": "NH-29 at Dzudza village to close from 16th - 18th August", "publisher": "Directorate of Information & Public Relations, Nagaland", "url": "https://ipr.nagaland.gov.in/node/14246"},
+        {"title": "Landslides block Kohima-Dimapur road in Nagaland", "publisher": "Deccan Herald (PTI)", "url": "https://www.deccanherald.com/amp/story/india%2Fnagaland%2Flandslides-block-kohima-dimapur-road-in-nagaland-3156792", "published": "2024-08-20"},
+        {"title": "Nagaland: Fresh mudslide hinders restoration of NH-29", "publisher": "Morung Express", "url": "https://morungexpress.com/nagaland-fresh-mudslide-hinders-restoration-of-nh-29", "published": "2024-08-23"}
+      ]
+    },
+    {
+      "id": "obs-2024-08-khonoma-road-landslide",
+      "description": "Landslide on the night of 22 August cut the Kohima-Khonoma road, one of the alternate routes advised while NH-29 was blocked at Dzudza.",
+      "cause": "landslide",
+      "started_at": "2024-08-22",
+      "date_precision": "day",
+      "location_text": "Kohima-Khonoma road (alternate route, not NH-29)",
+      "place_names": ["Khonoma"],
+      "sources": [
+        {"title": "Nagaland: Fresh mudslide hinders restoration of NH-29", "publisher": "Morung Express", "url": "https://morungexpress.com/nagaland-fresh-mudslide-hinders-restoration-of-nh-29", "published": "2024-08-23"}
+      ]
+    },
+    {
+      "id": "obs-2024-09-pherima-landslide",
+      "description": "Large landslide on the NH-29 stretch near Pherima on the night of 3 September, with loss of life reported, after the highway had reopened to single-lane traffic following the Dzudza blockage.",
+      "cause": "landslide",
+      "started_at": "2024-09-03",
+      "date_precision": "day",
+      "date_note": "The articles give 3 September without a year in the retrieved text; 2024 is inferred from later coverage (Sept 2025 'washed away last year') and a Nov 2024 report citing September 2024 landslides. Confirm.",
+      "location_text": "NH-29 near Pherima village, Chumoukedima district",
+      "place_names": ["Pherima"],
+      "sources": [
+        {"title": "Nagaland: Pherima landslide claims six lives, causes extensive damage", "publisher": "Morung Express", "url": "https://morungexpress.com/nagaland-pherima-landslide-claims-six-lives-causes-extensive-damage"},
+        {"title": "Fresh landslides strike Nagaland's NH-29; sever key links to Kohima and beyond", "publisher": "Morung Express", "url": "https://morungexpress.com/fresh-landslides-strike-nagalands-nh-29-sever-key-links-to-kohima-and-beyond"}
+      ]
+    },
+    {
+      "id": "obs-2024-09-pagla-pahar-washout",
+      "description": "A portion of NH-29 on the Pagla Pahar stretch was washed away by flooding of the Chathe River on the same night as the Pherima landslide, cutting main road connectivity towards Kohima.",
+      "cause": "flood",
+      "started_at": "2024-09-03",
+      "date_precision": "day",
+      "date_note": "Same year inference as the Pherima event. Confirm.",
+      "location_text": "NH-29 Pagla Pahar stretch (Chathe River side)",
+      "place_names": [],
+      "sources": [
+        {"title": "Fresh landslides strike Nagaland's NH-29; sever key links to Kohima and beyond", "publisher": "Morung Express", "url": "https://morungexpress.com/fresh-landslides-strike-nagalands-nh-29-sever-key-links-to-kohima-and-beyond"},
+        {"title": "Nagaland's 468.71 km highway projects progress with Rs 77.11 billion investment", "publisher": "Indian Infrastructure", "url": "https://indianinfrastructure.com/2024/11/11/nagalands-468-71-km-highway-projects-progress-with-rs-77-11-billion-investment/", "published": "2024-11-11"}
+      ]
+    },
+    {
+      "id": "obs-2025-09-nh29-chathe-paglapahar-landslides",
+      "description": "Multiple landslides between Chathe Bridge and New Chumoukedima halted traffic on the Dimapur-Kohima highway on 14 September; the Pagla Pahar stretch reported as washed away again. Police advisories restricted movement and listed alternate routes.",
+      "cause": "landslide",
+      "started_at": "2025-09-14",
+      "date_precision": "day",
+      "location_text": "NH-29 between Chathe Bridge and New Chumoukedima (Pagla Pahar)",
+      "place_names": ["Chümoukedima"],
+      "sources": [
+        {"title": "Nagaland: Washed Out Again", "publisher": "Morung Express", "url": "https://morungexpress.com/nagaland-washed-out-again"},
+        {"title": "Heavy Rains and Mudslides Disrupt NH-29 Connectivity in Nagaland", "publisher": "All India Radio News", "url": "https://www.newsonair.gov.in/heavy-rains-and-mudslides-disrupt-nh-29-connectivity-in-nagaland", "published": "2025-09-15"}
+      ]
+    },
+    {
+      "id": "obs-2025-09-chathe-suspension-bridge",
+      "description": "A suspension (wire) bridge over the Chathe River linking Chumoukedima and Seithekema was reported swept away or damaged when the river swelled on 14 September. Sources differ on the extent. Not a highway bridge.",
+      "cause": "flood",
+      "started_at": "2025-09-14",
+      "date_precision": "day",
+      "location_text": "Chathe River, between Chumoukedima and Seithekema",
+      "place_names": ["Chümoukedima"],
+      "sources": [
+        {"title": "Heavy Rains and Mudslides Disrupt NH-29 Connectivity in Nagaland", "publisher": "All India Radio News", "url": "https://www.newsonair.gov.in/heavy-rains-and-mudslides-disrupt-nh-29-connectivity-in-nagaland", "published": "2025-09-15"},
+        {"title": "Nagaland: Washed Out Again", "publisher": "Morung Express", "url": "https://morungexpress.com/nagaland-washed-out-again"}
+      ]
+    },
+    {
+      "id": "obs-2025-07-nh29-monsoon-landslides",
+      "description": "Repeated monsoon landslides at several vulnerable points on NH-29, with restrictions on heavy vehicles, reported alongside severe damage on NH-2 near Phesama.",
+      "cause": "landslide",
+      "started_at": "2025-07",
+      "date_precision": "month",
+      "location_text": "NH-29, several points (not individually named in the source)",
+      "place_names": [],
+      "sources": [
+        {"title": "Severe monsoon-induced landslides disrupt NH-2 & NH-29 in Nagaland", "publisher": "All India Radio News", "url": "https://www.newsonair.gov.in/severe-monsoon-induced-landslides-disrupt-nh-2-nh-29-in-nagaland", "published": "2025-07-22"}
+      ]
+    }
+  ]
+}

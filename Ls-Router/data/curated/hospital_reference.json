@@ -1,0 +1,12 @@
+{
+  "_about": "Cross-check list ONLY. It is not seeded into the graph and gives no coordinates, bed counts or capabilities. After `normalize`, the report lists which of these names were not found among OSM hospitals so a person can look them up, confirm coordinates, and add them via curated/additions.json.",
+  "source_url": "https://cmhis.nagaland.gov.in/hospitals/2",
+  "source_note": "Nagaland Chief Minister Health Insurance Scheme empanelled-hospital list (state government). Being empanelled says nothing about emergency or trauma capability.",
+  "hospitals": [
+    {"name": "Naga Hospital Authority Kohima"},
+    {"name": "District Hospital Dimapur"},
+    {"name": "Christian Institute of Health Sciences and Research"},
+    {"name": "Faith Hospital"},
+    {"name": "CHC Medziphema"}
+  ]
+}

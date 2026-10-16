@@ -1,0 +1,18 @@
+# Phase 0: one FalkorDB server (database on 6379, FalkorDB Browser on 3000).
+# Both ports are bound to localhost only. No password is configured (local dev).
+# The image is unpinned for now; pin the tested tag in .env (FALKORDB_IMAGE) before the final demo.
+name: landslide-router
+
+services:
+  falkordb:
+    image: ${FALKORDB_IMAGE:-falkordb/falkordb:latest}
+    container_name: landslide-falkordb
+    ports:
+      - "127.0.0.1:${FALKORDB_PORT:-6379}:6379"
+      - "127.0.0.1:${FALKORDB_BROWSER_PORT:-3000}:3000"
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    mem_limit: ${FALKORDB_MEM_LIMIT:-1g}
+
+volumes:
+  falkordb_data:

@@ -1,0 +1,7 @@
+{
+  "_about": "EXAMPLE ONLY (not loaded). Copy to additions.json to add a hospital or settlement that OSM lacks. Each needs name, lat, lon, source_url and compiled_on (the date you took it from the source). Places also need type (village|town). They are attached to the road network like OSM features and stay confidence=unverified unless a verification entry says otherwise.",
+  "hospitals": [
+    {"name": "Example Hospital", "lat": 0.0, "lon": 0.0, "source_url": "https://example.org/page", "compiled_on": "YYYY-MM-DD", "beds": null}
+  ],
+  "places": []
+}

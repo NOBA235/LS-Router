@@ -1,0 +1,41 @@
+:root {
+  --ink: #1c2833;
+  --paper: #f4f5f3;
+  --rule: #cfd5d2;
+  --warn-bg: #fff3d1;
+  --warn-ink: #5c4300;
+  --good: #1e7a4c;
+  --bad: #b3261e;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--ink);
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+.app { display: flex; flex-direction: column; height: 100%; background: var(--paper); }
+
+.bar { display: flex; align-items: baseline; gap: 16px; padding: 8px 16px; border-bottom: 1px solid var(--rule); font-size: 14px; }
+.bar h1 { margin: 0; font-size: 18px; }
+.bar .phase { margin-left: auto; color: #5b6770; }
+
+.disclaimer { margin: 0; padding: 6px 16px; background: var(--warn-bg); color: var(--warn-ink); font-size: 13px; border-bottom: 1px solid #e6d28f; }
+
+.stage { position: relative; flex: 1; min-height: 0; }
+.map { position: absolute; inset: 0; }
+.notice { position: absolute; top: 12px; left: 12px; max-width: 300px; padding: 10px 12px; background: #fff; border: 1px solid var(--rule); border-radius: 4px; font-size: 13px; line-height: 1.45; }
+.notice p { margin: 4px 0 0; }
+.map-problem { position: absolute; bottom: 36px; left: 12px; margin: 0; padding: 6px 10px; background: #fff; border: 1px solid var(--bad); color: var(--bad); border-radius: 4px; font-size: 13px; max-width: 70%; }
+
+footer { border-top: 1px solid var(--rule); }
+.status { display: flex; align-items: center; gap: 12px; padding: 6px 16px; font-size: 13px; }
+.status.good span::before, .status.bad span::before, .status.pending span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: #8a949b; }
+.status.good span::before { background: var(--good); }
+.status.bad span::before { background: var(--bad); }
+.status button { font: inherit; padding: 2px 10px; border: 1px solid var(--rule); background: #fff; border-radius: 4px; cursor: pointer; }
+.status button:hover { background: #eef1ef; }
+:focus-visible { outline: 2px solid #1d5fa8; outline-offset: 2px; }
+
+@media (max-width: 640px) {
+  .bar { flex-wrap: wrap; gap: 4px 12px; }
+  .bar .phase { margin-left: 0; }
+  .notice { right: 12px; max-width: none; }
+}

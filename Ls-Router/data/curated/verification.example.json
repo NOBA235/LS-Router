@@ -1,0 +1,13 @@
+{
+  "_about": "EXAMPLE ONLY (not loaded). Copy to verification.json and replace. Use only after you have opened the source yourself. 'verified' requires verification_source_url and a real last_verified date (YYYY-MM-DD, not in the future). Only the fields listed in 'set' may change: name, population, beds, trauma_level, monsoon_risk (low|medium|high), surface.",
+  "entries": [
+    {
+      "id": "hospital-node-0000000",
+      "confidence": "verified",
+      "last_verified": "YYYY-MM-DD",
+      "verification_source_url": "https://example.org/official-page",
+      "set": {"beds": 0},
+      "notes": "what you checked"
+    }
+  ]
+}
