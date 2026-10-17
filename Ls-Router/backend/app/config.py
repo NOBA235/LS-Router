@@ -10,9 +10,11 @@ class Settings(BaseSettings):
 
     falkordb_host: str = "localhost"
     falkordb_port: int = 6379
-    falkordb_password: str | None = None  # unused in Phase 0 (no password configured)
+    falkordb_username: str | None = None
+    falkordb_password: str | None = None
+    falkordb_ssl: bool = False
     falkordb_graph: str = "landslide"
-    falkordb_timeout_s: float = 2.0
+    falkordb_timeout_s: float = 10.0
 
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-3-5-sonnet-latest"

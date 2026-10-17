@@ -52,9 +52,16 @@ def main(argv=None, graph=None, out=print) -> int:
     a = ap.parse_args(argv)
     if graph is None:
         from falkordb import FalkorDB
+        from ..config import get_settings
 
-        graph = FalkorDB(host=os.environ.get("FALKORDB_HOST", "localhost"), port=int(os.environ.get("FALKORDB_PORT", "6379")),
-                         password=os.environ.get("FALKORDB_PASSWORD") or None).select_graph(a.graph)
+        s = get_settings()
+        graph = FalkorDB(
+            host=s.falkordb_host,
+            port=s.falkordb_port,
+            username=s.falkordb_username or None,
+            password=s.falkordb_password or None,
+            ssl=s.falkordb_ssl,
+        ).select_graph(a.graph or s.falkordb_graph)
     store = FalkorStore(graph)
     try:
         if a.command == "ids":

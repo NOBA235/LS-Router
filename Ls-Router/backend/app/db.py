@@ -77,7 +77,9 @@ def check_falkordb(settings: Settings) -> dict:
         client = FalkorDB(
             host=settings.falkordb_host,
             port=settings.falkordb_port,
+            username=settings.falkordb_username or None,
             password=settings.falkordb_password or None,
+            ssl=settings.falkordb_ssl,
             socket_timeout=settings.falkordb_timeout_s,
             socket_connect_timeout=settings.falkordb_timeout_s,
         )
@@ -108,7 +110,9 @@ def get_store() -> Iterator[FalkorStore]:
         client = FalkorDB(
             host=settings.falkordb_host,
             port=settings.falkordb_port,
+            username=settings.falkordb_username or None,
             password=settings.falkordb_password or None,
+            ssl=settings.falkordb_ssl,
             socket_timeout=settings.falkordb_timeout_s,
             socket_connect_timeout=settings.falkordb_timeout_s,
         )

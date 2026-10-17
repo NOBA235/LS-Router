@@ -72,12 +72,16 @@ def create_server_from_args(args: argparse.Namespace):
         graph = InMemoryGraph(ds)
     else:
         from falkordb import FalkorDB
+        from app.config import get_settings
 
+        s = get_settings()
         graph = FalkorDB(
-            host=os.environ.get("FALKORDB_HOST", "localhost"),
-            port=int(os.environ.get("FALKORDB_PORT", "6379")),
-            password=os.environ.get("FALKORDB_PASSWORD") or None,
-        ).select_graph(args.graph)
+            host=s.falkordb_host,
+            port=s.falkordb_port,
+            username=s.falkordb_username or None,
+            password=s.falkordb_password or None,
+            ssl=s.falkordb_ssl,
+        ).select_graph(args.graph or s.falkordb_graph)
 
     store = FalkorStore(graph)
     return build_mcp_server(

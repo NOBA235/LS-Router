@@ -240,12 +240,16 @@ def main(argv=None, graph=None, out=print) -> int:
             graph = InMemoryGraph(ds)
         else:
             from falkordb import FalkorDB
+            from ..config import get_settings
 
+            s = get_settings()
             graph = FalkorDB(
-                host=os.environ.get("FALKORDB_HOST", "localhost"),
-                port=int(os.environ.get("FALKORDB_PORT", "6379")),
-                password=os.environ.get("FALKORDB_PASSWORD") or None,
-            ).select_graph(a.graph)
+                host=s.falkordb_host,
+                port=s.falkordb_port,
+                username=s.falkordb_username or None,
+                password=s.falkordb_password or None,
+                ssl=s.falkordb_ssl,
+            ).select_graph(a.graph or s.falkordb_graph)
 
     store = FalkorStore(graph)
     llm_client = llm_client_from_env() if a.planner == "auto" else None

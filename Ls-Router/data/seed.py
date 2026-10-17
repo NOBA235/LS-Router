@@ -159,8 +159,14 @@ def _connect(graph_name: str):
     from falkordb import FalkorDB  # imported late so --dry-run works without the package
 
     pc.load_env()
-    client = FalkorDB(host=os.environ.get("FALKORDB_HOST", "localhost"), port=int(os.environ.get("FALKORDB_PORT", "6379")),
-                      password=os.environ.get("FALKORDB_PASSWORD") or None)
+    use_ssl = os.environ.get("FALKORDB_SSL", "").strip().lower() in ("1", "true", "yes")
+    client = FalkorDB(
+        host=os.environ.get("FALKORDB_HOST", "localhost"),
+        port=int(os.environ.get("FALKORDB_PORT", "6379")),
+        username=os.environ.get("FALKORDB_USERNAME") or None,
+        password=os.environ.get("FALKORDB_PASSWORD") or None,
+        ssl=use_ssl,
+    )
     return client.select_graph(graph_name)
 
 
