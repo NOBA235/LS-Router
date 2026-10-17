@@ -19,8 +19,18 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
 
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    landslide_dataset_path: str | None = None
+    landslide_use_fixture: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
 

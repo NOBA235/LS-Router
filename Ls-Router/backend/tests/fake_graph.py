@@ -41,6 +41,8 @@ class FakeGraph:
             Q.Q_BRIDGES: self._bridges, Q.Q_EVENTS: self._events, Q.Q_BLOCKS_SEGMENT: self._blocks_seg, Q.Q_BLOCKS_BRIDGE: self._blocks_bridge,
             Q.Q_FAILED_IN: self._failed_in, Q.Q_NEAR_PLACE: self._near, Q.Q_SEASONS: self._seasons, Q.Q_DATASET: self._dataset,
             Q.Q_PROCEDURES: lambda p: [[n, m] for n, m in self.procedures],
+            Q.Q_PLACE_DETAIL: self._place_detail, Q.Q_HOSPITAL_DETAIL: self._hospital_detail,
+            Q.Q_BRIDGE_DETAIL: self._bridge_detail, Q.Q_SEGMENT_DETAIL: self._segment_detail,
             Q.W_CREATE_CLOSURE: self._create, Q.W_CREATE_CLOSURE_WITH_BRIDGE: self._create, Q.W_RESOLVE_CLOSURE: self._resolve,
             Q.W_MARK_REMEMBERED: self._remember, Q.W_RECORD_FAILURE: self._record_failure, Q.W_UPSERT_ALERT: self._upsert_alert,
             Q.W_CLEAR_ALERT_ROUTES: self._clear_routes, Q.W_LINK_ALERT_ROUTE: self._link_route}
@@ -109,6 +111,20 @@ class FakeGraph:
     def _dataset(self, _):
         d = self.dataset
         return [[d["id"], d.get("kind"), d.get("network_fingerprint"), d.get("retrieved_at"), d.get("attribution")]]
+
+    def _place_detail(self, _):
+        return [[p["id"], p.get("source_id"), p.get("retrieved_at"), p.get("last_verified"), p.get("population")]
+                for _, p in sorted(self.places.items())]
+
+    def _hospital_detail(self, _):
+        return [[h["id"], h.get("source_id"), h.get("retrieved_at"), h.get("last_verified")] for _, h in sorted(self.hospitals.items())]
+
+    def _bridge_detail(self, _):
+        return [[b["id"], b.get("source_id"), b.get("retrieved_at"), b.get("last_verified")] for _, b in sorted(self.bridges.items())]
+
+    def _segment_detail(self, _):
+        return [[s["id"], s.get("source_id"), s.get("retrieved_at"), s.get("last_verified"), s.get("surface"), s.get("geometry")]
+                for _, s in sorted(self.segments.items())]
 
     # ---- writes
     def _create(self, p):

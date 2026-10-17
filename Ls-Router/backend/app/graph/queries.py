@@ -31,6 +31,18 @@ SNAPSHOT_QUERIES = [("places", Q_PLACES), ("segments", Q_SEGMENTS), ("connection
                     ("blocks_bridge", Q_BLOCKS_BRIDGE), ("failed_in", Q_FAILED_IN), ("near_place", Q_NEAR_PLACE),
                     ("seasons", Q_SEASONS), ("dataset", Q_DATASET)]
 
+# ----- detail reads (GET /graph only) -----
+# Fields the routing tools never use but a map client must be able to inspect: the complete provenance record
+# (source_id, retrieved_at, last_verified), population, surface and the stored road geometry. A missing property is NULL.
+# Deliberately NOT part of SNAPSHOT_QUERIES: the tools' reported Cypher stays exactly what they need.
+Q_PLACE_DETAIL = "MATCH (p:Place) RETURN p.id, p.source_id, p.retrieved_at, p.last_verified, p.population ORDER BY p.id"
+Q_HOSPITAL_DETAIL = "MATCH (h:Hospital) RETURN h.id, h.source_id, h.retrieved_at, h.last_verified ORDER BY h.id"
+Q_BRIDGE_DETAIL = "MATCH (b:Bridge) RETURN b.id, b.source_id, b.retrieved_at, b.last_verified ORDER BY b.id"
+Q_SEGMENT_DETAIL = ("MATCH (s:RoadSegment) RETURN s.id, s.source_id, s.retrieved_at, s.last_verified, s.surface, s.geometry "
+                    "ORDER BY s.id")
+DETAIL_QUERIES = [("place_detail", Q_PLACE_DETAIL), ("hospital_detail", Q_HOSPITAL_DETAIL),
+                  ("bridge_detail", Q_BRIDGE_DETAIL), ("segment_detail", Q_SEGMENT_DETAIL)]
+
 # ----- writes -----
 # One statement creates the event and its BLOCKS link; if the segment does not exist nothing is created.
 W_CREATE_CLOSURE = ("MATCH (s:RoadSegment {id: $segment_id}) "

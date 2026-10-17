@@ -104,3 +104,4 @@ Free-text descriptions, query arguments, and tool results are sanitized to preve
 - Local user filesystem paths (`C:\Users\...`): `[REDACTED_USER_PATH]`
 - Public OpenStreetMap provenance URLs are preserved while userinfo credentials are stripped (`https://[REDACTED]@...`).
 - Stdio child subprocesses receive a strictly whitelisted environment, preventing leakage of `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+

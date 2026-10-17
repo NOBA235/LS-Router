@@ -59,3 +59,4 @@ Add the following to your Claude Desktop configuration file (`%APPDATA%\Claude\c
   }
 }
 ```
+

@@ -15,7 +15,7 @@ import unicodedata
 from dataclasses import asdict, dataclass, field
 
 from ..graph import algorithms as A
-from ..graph.errors import ToolInputError
+from ..graph.errors import ToolInputError, ToolNotFoundError
 from ..graph.snapshot import Bridge, Place, Segment, Snapshot
 from ..graph.tools import FALKORDB_NATIVE_NOTE, MONTH_NAMES, _text
 
@@ -501,9 +501,9 @@ class LocationResolver:
             t_br_id = _text(target_bridge_id, "target_bridge_id", 200) if target_bridge_id is not None else None
 
             if t_br_id is not None and t_br_id not in snap.bridges:
-                raise ToolInputError(f"target_bridge_id: unknown bridge {t_br_id!r}")
+                raise ToolNotFoundError(f"target_bridge_id: unknown bridge {t_br_id!r}")
             if t_seg_id is not None and t_seg_id not in snap.segments:
-                raise ToolInputError(f"target_segment_id: unknown road segment {t_seg_id!r}")
+                raise ToolNotFoundError(f"target_segment_id: unknown road segment {t_seg_id!r}")
 
             if t_br_id is not None and t_seg_id is None:
                 br = snap.bridges[t_br_id]

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import algorithms as A
-from .errors import ToolInputError, ToolStateError
+from .errors import ToolInputError, ToolNotFoundError, ToolStateError
 from .fingerprint import network_fingerprint, segment_fingerprint
 from .snapshot import Snapshot
 
@@ -100,12 +100,12 @@ class Toolbox:
     @staticmethod
     def _need_place(snap, pid, name) -> None:
         if not isinstance(pid, str) or pid not in snap.places:
-            raise ToolInputError(f"{name}: unknown place id {pid!r}")
+            raise ToolNotFoundError(f"{name}: unknown place id {pid!r}")
 
     @staticmethod
     def _need_event(snap, eid, name="event_id"):
         if not isinstance(eid, str) or eid not in snap.events:
-            raise ToolInputError(f"{name}: unknown closure event {eid!r}")
+            raise ToolNotFoundError(f"{name}: unknown closure event {eid!r}")
         return snap.events[eid]
 
     @staticmethod
@@ -249,13 +249,13 @@ class Toolbox:
         snap = self._load()
         seg = snap.segments.get(seg_id)
         if seg is None:
-            raise ToolInputError(f"segment_id: unknown road segment {seg_id!r}")
+            raise ToolNotFoundError(f"segment_id: unknown road segment {seg_id!r}")
         if not seg.corridor_id:
             raise ToolInputError(f"segment {seg_id} is not SEGMENT_OF any corridor, so it cannot be closed here")
         if bridge_id is not None:
             bridge = snap.bridges.get(bridge_id)
             if bridge is None:
-                raise ToolInputError(f"bridge_id: unknown bridge {bridge_id!r}")
+                raise ToolNotFoundError(f"bridge_id: unknown bridge {bridge_id!r}")
             if seg_id not in bridge.segment_ids:
                 raise ToolInputError(f"bridge {bridge_id} is not ON segment {seg_id}")
         want_bridges = {bridge_id} if bridge_id else set()
@@ -548,7 +548,7 @@ class Toolbox:
             raise ToolInputError("top_k must be an integer from 1 to 200")
         snap = self._load()
         if corridor_id not in snap.corridors():
-            raise ToolInputError(f"corridor_id: unknown corridor {corridor_id!r} (known: {sorted(snap.corridors())})")
+            raise ToolNotFoundError(f"corridor_id: unknown corridor {corridor_id!r} (known: {sorted(snap.corridors())})")
         sub = self._restrict(snap, {k for k, s in snap.segments.items() if s.corridor_id == corridor_id})
         G, cls = A.routing_graph(sub, set())
         cen, usage, art = A.centrality(G), A.pair_usage(G), A.articulation_places(G)

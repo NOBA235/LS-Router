@@ -73,6 +73,23 @@ class FalkorStore:
             snap.dataset = dict(zip(("id", "kind", "network_fingerprint", "retrieved_at", "attribution"), ds[0]))
         return snap
 
+    def load_details(self) -> dict:
+        """Extra read-only fields for GET /graph, keyed by entity id: {places|hospitals|bridges|segments: {id: {...}}}.
+
+        Unknown values stay None (a property that was never stored is NULL); nothing is guessed or defaulted.
+        """
+        out: dict = {"places": {}, "hospitals": {}, "bridges": {}, "segments": {}}
+        for r in self._rows("place_detail", Q.Q_PLACE_DETAIL):
+            out["places"][r[0]] = {"source_id": r[1], "retrieved_at": r[2], "last_verified": r[3], "population": r[4]}
+        for r in self._rows("hospital_detail", Q.Q_HOSPITAL_DETAIL):
+            out["hospitals"][r[0]] = {"source_id": r[1], "retrieved_at": r[2], "last_verified": r[3]}
+        for r in self._rows("bridge_detail", Q.Q_BRIDGE_DETAIL):
+            out["bridges"][r[0]] = {"source_id": r[1], "retrieved_at": r[2], "last_verified": r[3]}
+        for r in self._rows("segment_detail", Q.Q_SEGMENT_DETAIL):
+            out["segments"][r[0]] = {"source_id": r[1], "retrieved_at": r[2], "last_verified": r[3], "surface": r[4],
+                                     "geometry": r[5]}
+        return out
+
     # ---- writes
     def create_closure(self, event_id, description, cause, now, segment_id, bridge_id=None) -> None:
         params = {"event_id": event_id, "description": description, "cause": cause, "now": now, "segment_id": segment_id}

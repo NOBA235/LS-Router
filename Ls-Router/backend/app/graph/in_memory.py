@@ -47,6 +47,10 @@ class InMemoryGraph:
             Q.Q_NEAR_PLACE: self._near,
             Q.Q_SEASONS: self._seasons,
             Q.Q_DATASET: self._dataset,
+            Q.Q_PLACE_DETAIL: self._place_detail,
+            Q.Q_HOSPITAL_DETAIL: self._hospital_detail,
+            Q.Q_BRIDGE_DETAIL: self._bridge_detail,
+            Q.Q_SEGMENT_DETAIL: self._segment_detail,
             Q.Q_PROCEDURES: lambda p: [[n, m] for n, m in self.procedures],
             Q.W_CREATE_CLOSURE: self._create,
             Q.W_CREATE_CLOSURE_WITH_BRIDGE: self._create,
@@ -141,6 +145,22 @@ class InMemoryGraph:
         if not d:
             return []
         return [[d.get("id"), d.get("kind"), d.get("network_fingerprint"), d.get("retrieved_at"), d.get("attribution")]]
+
+    def _place_detail(self, _):
+        return [[p["id"], p.get("source_id"), p.get("retrieved_at"), p.get("last_verified"), p.get("population")]
+                for _, p in sorted(self.places.items())]
+
+    def _hospital_detail(self, _):
+        return [[h["id"], h.get("source_id"), h.get("retrieved_at"), h.get("last_verified")]
+                for _, h in sorted(self.hospitals.items())]
+
+    def _bridge_detail(self, _):
+        return [[b["id"], b.get("source_id"), b.get("retrieved_at"), b.get("last_verified")]
+                for _, b in sorted(self.bridges.items())]
+
+    def _segment_detail(self, _):
+        return [[s["id"], s.get("source_id"), s.get("retrieved_at"), s.get("last_verified"), s.get("surface"), s.get("geometry")]
+                for _, s in sorted(self.segments.items())]
 
     def _create(self, p):
         if p["segment_id"] not in self.segments or ("bridge_id" in p and p["bridge_id"] not in self.bridges):

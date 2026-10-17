@@ -4,7 +4,7 @@ Graph-backed landslide-routing prototype for the Dimapur–Kohima corridor (NH29
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
-**Current state: Phase 4 (Model Context Protocol server).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), and the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`). There is no HTTP tool API yet, and the map still shows no project data (Phase 6).
+**Current state: Phase 5 (FastAPI HTTP Backend).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), and the Phase 5 FastAPI HTTP backend (`backend/app/main.py`). The frontend map still shows no project data until Phase 6.
 
 ## Prerequisites (Windows)
 
@@ -139,6 +139,27 @@ When FalkorDB is running and seeded (or using `--dataset ..\data\cache\normalize
 ```bat
 python -m app.mcp_bridge.cli demo
 python -m app.agent.cli --mcp-transport stdio "Landslide near NH29 kilometre 42"
+```
+
+## Phase 5: FastAPI HTTP backend
+
+Design, endpoints, ambiguity gating, and error codes: [docs/PHASE5.md](docs/PHASE5.md).
+
+Start the backend from `backend\` with `.venv` active (set `LANDSLIDE_USE_FIXTURE=1` if testing offline without Docker):
+
+```bat
+cd backend
+.venv\Scripts\activate.bat
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Interactive OpenAPI documentation is served at http://127.0.0.1:8000/docs. Example `curl` requests:
+
+```bat
+curl http://127.0.0.1:8000/graph
+curl -X POST http://127.0.0.1:8000/closure -H "Content-Type: application/json" -d "{\"description\": \"Landslide near NH29 kilometre 42\"}"
+curl http://127.0.0.1:8000/weak-links?top_k=5
+curl http://127.0.0.1:8000/seasonal-risk?month=july
 ```
 
 ## Stop
