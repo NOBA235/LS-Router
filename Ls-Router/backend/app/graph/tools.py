@@ -196,7 +196,7 @@ class Toolbox:
                 "travel_time_is_estimate": True}
 
     # ------------------------------------------------------------------ shared analysis
-    def _cutoff(self, snap, blocked: dict, event_id=None) -> dict:
+    def _cutoff(self, snap, blocked: dict, event_id=None, replay: bool = False) -> dict:
         """Baseline vs closed reachability from Dimapur (directed), plus Kohima and undirected components."""
         origin = self._origin(snap)
         G0, _ = A.topology_graph(snap, set())
@@ -229,7 +229,7 @@ class Toolbox:
                                  key=lambda d: (d["segment_id"], d["direction"]))
         # attribution: cut off now, but reachable if this event alone were cleared
         out["attributable"], out["other"] = [], list(newly)
-        if event_id and snap.events[event_id].status == "active":
+        if event_id and (snap.events[event_id].status == "active" or replay):
             G2, _ = A.topology_graph(snap, set(snap.blocked_map(without_events={event_id})))
             reach2 = A.reach(G2, origin.id)
             out["attributable"] = [p for p in newly if p in reach2]
@@ -357,16 +357,20 @@ class Toolbox:
         return self._done("clear_closure", inputs, result, expl, graph, warnings, self._cypher_only("closure-write"))
 
     # ------------------------------------------------------------------ 3. find_cut_off_places
-    def find_cut_off_places(self, closure_event_id) -> dict:
-        inputs = {"closure_event_id": closure_event_id}
+    def find_cut_off_places(self, closure_event_id, replay: bool = False) -> dict:
+        inputs = {"closure_event_id": closure_event_id, **({"replay": True} if replay else {})}
         snap = self._load()
         ev = self._need_event(snap, closure_event_id, "closure_event_id")
-        blocked = snap.blocked_map()
-        c = self._cutoff(snap, blocked, ev.id)
+        blocked = snap.blocked_map(extra_events=(ev.id,) if replay else ())
+        c = self._cutoff(snap, blocked, ev.id, replay=replay)
         warnings = self._coverage_warnings(snap, c["cls"])
         if ev.status != "active":
-            warnings.append(f"{ev.id} is '{ev.status}', not active: it blocks nothing now, so no place is attributed to it. "
-                            "Results show the effect of any OTHER active closures.")
+            if replay:
+                warnings.append(f"Timeline replay mode: evaluating stored event {ev.id} (status={ev.status!r}, "
+                                f"data_status={ev.data_status!r}) without mutating active closures.")
+            else:
+                warnings.append(f"{ev.id} is '{ev.status}', not active: it blocks nothing now, so no place is attributed to it. "
+                                "Results show the effect of any OTHER active closures.")
         if c["already_unreachable"]:
             warnings.append(f"{len(c['already_unreachable'])} place(s) were already unreachable from Dimapur in the baseline "
                             "(incomplete coverage or one-way access); they are NOT reported as newly cut off.")
@@ -457,8 +461,32 @@ class Toolbox:
     def explain_path(self, from_place_id, to_place_id, avoid_event_id=None) -> dict:
         inputs = {"from_place_id": from_place_id, "to_place_id": to_place_id, "avoid_event_id": avoid_event_id}
         snap, blocked, closed, base, connected, cls, warnings = self._route_request(from_place_id, to_place_id, avoid_event_id)
+        base_payload = self._route_payload(snap, base)
+        base_total = base_payload["total_travel_time_min"] if base_payload else None
+        base_contribs = (
+            [{"segment_id": s["segment_id"], "name": s["segment_name"], "from": s["from"], "to": s["to"],
+              "direction": s["direction"], "travel_time_min": s["travel_time_min"], "length_km": s["length_km"],
+              "share_of_total": round(s["travel_time_min"] / base_total, 4) if base_total else None,
+              "travel_time_basis": s["travel_time_basis"], "confidence": s["confidence"], "source_url": s["source_url"],
+              "data_status": s["data_status"], "bridges_on_segment": s["bridges_on_segment"]}
+             for s in base_payload["segments"]]
+            if base_payload
+            else []
+        )
         if closed is None:
+            baseline_comp = {
+                "baseline_path": {"nodes": base_payload["nodes"], "node_names": base_payload["node_names"]} if base_payload else None,
+                "baseline_contributions": base_contribs,
+                "baseline_total_travel_time_min": base_total,
+                "baseline_total_length_km": base_payload["total_length_km"] if base_payload else None,
+                "detour_travel_time_delta_min": None,
+                "detour_length_delta_km": None,
+                "same_as_baseline": False,
+                "segments_avoided_from_baseline": [c["segment_id"] for c in base_contribs],
+                "segments_added_in_detour": [],
+            }
             result = {"status": "no_route", "selected_path": None,
+                      "baseline_comparison": baseline_comp,
                       "exclusions": {"blocked_segments": blocked, "excluded_invalid_weight": sorted({c.segment_id for c in cls["invalid_weight"]})},
                       "reason": "Directed path missing" if not connected else "Only paths with invalid weights exist"}
             return self._done("explain_path", inputs, result, "No route exists, so there is no path to explain.",
@@ -473,9 +501,30 @@ class Toolbox:
                           "data_status": s["data_status"], "bridges_on_segment": s["bridges_on_segment"]} for s in payload["segments"]]
         checks = {"segment_times_sum_to_total": abs(sum(c["travel_time_min"] for c in contributions) - total) < 1e-6,
                   "no_selected_segment_is_blocked": not any(c["segment_id"] in blocked for c in contributions)}
+        chosen_sids = [c["segment_id"] for c in contributions]
+        base_sids = [c["segment_id"] for c in base_contribs]
+        chosen_set = set(chosen_sids)
+        base_set = set(base_sids)
+        detour_km_delta = (
+            round(payload["total_length_km"] - base_payload["total_length_km"], 3)
+            if (payload["total_length_km"] is not None and base_payload and base_payload["total_length_km"] is not None)
+            else None
+        )
+        baseline_comp = {
+            "baseline_path": {"nodes": base_payload["nodes"], "node_names": base_payload["node_names"]} if base_payload else None,
+            "baseline_contributions": base_contribs,
+            "baseline_total_travel_time_min": base_total,
+            "baseline_total_length_km": base_payload["total_length_km"] if base_payload else None,
+            "detour_travel_time_delta_min": round(total - base_total, 6) if base_total is not None else None,
+            "detour_length_delta_km": detour_km_delta,
+            "same_as_baseline": bool(base_payload and chosen_sids == base_sids),
+            "segments_avoided_from_baseline": [sid for sid in base_sids if sid not in chosen_set],
+            "segments_added_in_detour": [sid for sid in chosen_sids if sid not in base_set],
+        }
         result = {"status": "route_found", "selected_path": {"nodes": payload["nodes"], "node_names": payload["node_names"]},
                   "contributions": contributions, "total_travel_time_min": total, "total_length_km": payload["total_length_km"],
-                  "baseline_total_travel_time_min": base["total_travel_time_min"] if base else None,
+                  "baseline_total_travel_time_min": base_total,
+                  "baseline_comparison": baseline_comp,
                   "exclusions": {"blocked_segments": blocked,
                                  "excluded_invalid_weight": sorted({c.segment_id for c in cls["invalid_weight"]}),
                                  "dangling_connections": len(cls["dangling"])},
@@ -490,14 +539,14 @@ class Toolbox:
                           self._alg("dijkstra_path (weight = travel_time_min)", "Directed edges; blocked segments excluded."))
 
     # ------------------------------------------------------------------ 5. find_unreachable_hospitals
-    def find_unreachable_hospitals(self, closure_event_id, threshold_min=None) -> dict:
-        inputs = {"closure_event_id": closure_event_id, "threshold_min": threshold_min}
+    def find_unreachable_hospitals(self, closure_event_id, threshold_min=None, replay: bool = False) -> dict:
+        inputs = {"closure_event_id": closure_event_id, "threshold_min": threshold_min, **({"replay": True} if replay else {})}
         if threshold_min is not None and not A.weight_ok(threshold_min):
             raise ToolInputError("threshold_min must be a positive number")
         snap = self._load()
         ev = self._need_event(snap, closure_event_id, "closure_event_id")
-        blocked = snap.blocked_map()
-        c = self._cutoff(snap, blocked, ev.id)
+        blocked = snap.blocked_map(extra_events=(ev.id,) if replay else ())
+        c = self._cutoff(snap, blocked, ev.id, replay=replay)
         affected = self._settlements(snap, c["newly"])
         Gr0, _ = A.routing_graph(snap, set())
         Gr1, _ = A.routing_graph(snap, set(blocked))
@@ -505,7 +554,11 @@ class Toolbox:
         warnings = self._coverage_warnings(snap, c["cls"]) + [ESTIMATE_NOTE,
                    "Reachability is not suitability: bed counts and trauma capability are unknown unless listed; no capability is assumed."]
         if ev.status != "active":
-            warnings.append(f"{ev.id} is '{ev.status}', not active; only other active closures affect the result.")
+            if replay:
+                warnings.append(f"Timeline replay mode: evaluating stored event {ev.id} (status={ev.status!r}, "
+                                f"data_status={ev.data_status!r}) without mutating active closures.")
+            else:
+                warnings.append(f"{ev.id} is '{ev.status}', not active; only other active closures affect the result.")
         per_village, by_hosp = [], {h.id: {"reachable_from": [], "newly_unreachable_from": [], "unreachable_in_baseline_too_from": [],
                                            "over_threshold_from": []} for h in hospitals}
         for v in affected:
@@ -845,17 +898,21 @@ class Toolbox:
             text = build(None, None)
         return text
 
-    def draft_alerts(self, closure_event_id) -> dict:
-        inputs = {"closure_event_id": closure_event_id}
+    def draft_alerts(self, closure_event_id, replay: bool = False) -> dict:
+        inputs = {"closure_event_id": closure_event_id, **({"replay": True} if replay else {})}
         snap = self._load()
         ev = self._need_event(snap, closure_event_id, "closure_event_id")
-        blocked = snap.blocked_map()
-        c = self._cutoff(snap, blocked, ev.id)
+        blocked = snap.blocked_map(extra_events=(ev.id,) if replay else ())
+        c = self._cutoff(snap, blocked, ev.id, replay=replay)
         affected = self._settlements(snap, c["newly"])
         warnings = self._coverage_warnings(snap, c["cls"]) + [ESTIMATE_NOTE,
                    "Drafts only: nothing is sent and no emergency service is contacted. Affected population is not estimated."]
         if ev.status != "active":
-            warnings.append(f"{ev.id} is '{ev.status}', not active; alerts reflect only other active closures.")
+            if replay:
+                warnings.append(f"Timeline replay mode: drafting synthetic alerts for stored event {ev.id} (status={ev.status!r}, "
+                                f"data_status={ev.data_status!r}) without mutating active closures.")
+            else:
+                warnings.append(f"{ev.id} is '{ev.status}', not active; alerts reflect only other active closures.")
         Gr1, _ = A.routing_graph(snap, set(blocked))
         hospitals = [h for h in sorted(snap.hospitals.values(), key=lambda h: h.id) if h.access_place_id in snap.places]
         location = self._location_text(snap, ev)

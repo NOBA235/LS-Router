@@ -4,7 +4,7 @@ Graph-backed landslide-routing prototype for the Dimapur–Kohima corridor (NH29
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
-**Current state: Phase 7 (Historical Memory and Seasonal Risk).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), the Phase 5 FastAPI HTTP backend (`backend/app/main.py`), the Phase 6 three-pane MapLibre + React frontend (`frontend/src/`), and the Phase 7 persistent closure history, idempotency protection, and seasonal risk scoring (`docs/PHASE7.md`).
+**Current state: Phase 8 (Polish — Confidence Badges, Provenance Inspection, Timeline Replay, Alert Export & Route Comparison).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), the Phase 5 FastAPI HTTP backend (`backend/app/main.py`), the Phase 6 three-pane MapLibre + React frontend (`frontend/src/`), the Phase 7 persistent closure history, idempotency protection, and seasonal risk scoring (`docs/PHASE7.md`), and the Phase 8 confidence badges, data-source inspector, closure timeline replay, draft alert-plan export, and side-by-side alternative-route comparison (`docs/PHASE8.md`).
 
 ## Prerequisites (Windows)
 
@@ -186,6 +186,19 @@ Example endpoints for closure archiving and historical audit:
 curl -X POST http://127.0.0.1:8000/remember/<event_id>
 curl http://127.0.0.1:8000/history
 curl http://127.0.0.1:8000/seasonal-risk?month=july
+```
+
+## Phase 8: Polish (Confidence Badges, Provenance Inspection, Timeline Replay, Alert Export & Route Comparison)
+
+Design, timeline replay, draft alert-plan exports, and side-by-side baseline comparison: [docs/PHASE8.md](docs/PHASE8.md).
+
+Example endpoints for timeline replay and draft alert-plan export:
+
+```bat
+curl http://127.0.0.1:8000/history
+curl http://127.0.0.1:8000/replay/<event_id>
+curl "http://127.0.0.1:8000/alerts/<event_id>/export?format=json&replay=true"
+curl -OJ "http://127.0.0.1:8000/alerts/<event_id>/export?format=text&replay=true"
 ```
 
 ## Stop

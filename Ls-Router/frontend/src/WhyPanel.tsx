@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type {
   CutoffResponse,
   DraftAlertsResponse,
@@ -7,11 +8,19 @@ import type {
   ResolveClosureResponse,
   SelectedFeature,
   SeasonalRiskResponse,
+  TimelineEntry,
   WeakLinksResponse,
 } from "./types";
 
 interface WhyPanelProps {
   graph: GraphResponse | null;
+  timeline: TimelineEntry[];
+  replayedEventId: string | null;
+  onReplayEvent: (eventId: string) => void;
+  onExitReplay: () => void;
+  onRememberEvent: (eventId: string) => void;
+  onExportAlerts: (eventId: string, format: "json" | "text") => void;
+  exportedTextPreview: string | null;
   selectedFeature: SelectedFeature | null;
   onSelectFeature: (feature: SelectedFeature) => void;
   cutoff: CutoffResponse | null;
@@ -30,7 +39,11 @@ interface WhyPanelProps {
 function ConfidenceBadge({ value }: { value: string | null | undefined }) {
   const v = value || "unverified";
   const cls = v === "verified" ? "badge verified" : "badge unverified";
-  return <span className={cls}>{v}</span>;
+  return (
+    <span className={cls} title={`Source confidence: ${v}`}>
+      {v}
+    </span>
+  );
 }
 
 function StatusBadge({ value }: { value: string | null | undefined }) {
@@ -38,9 +51,21 @@ function StatusBadge({ value }: { value: string | null | undefined }) {
   let cls = "badge neutral";
   if (v === "blocked" || v === "cut_off" || v === "newly_unreachable" || v === "high") {
     cls = "badge danger";
-  } else if (v === "open" || v === "reachable" || v === "resolved" || v === "route_found") {
+  } else if (
+    v === "open" ||
+    v === "reachable" ||
+    v === "resolved" ||
+    v === "route_found" ||
+    v === "observed"
+  ) {
     cls = "badge ok";
-  } else if (v === "simulated" || v === "draft" || v === "medium" || v === "assumed") {
+  } else if (
+    v === "simulated" ||
+    v === "draft" ||
+    v === "medium" ||
+    v === "assumed" ||
+    v === "derived"
+  ) {
     cls = "badge warn";
   }
   return <span className={cls}>{v}</span>;
@@ -91,8 +116,25 @@ function ProvenanceTable({ prov }: { prov: Provenance }) {
   );
 }
 
+type SourceFilterKind =
+  | "all"
+  | "verified"
+  | "unverified"
+  | "place"
+  | "segment"
+  | "hospital"
+  | "bridge"
+  | "closure";
+
 export default function WhyPanel({
   graph,
+  timeline,
+  replayedEventId,
+  onReplayEvent,
+  onExitReplay,
+  onRememberEvent,
+  onExportAlerts,
+  exportedTextPreview,
   selectedFeature,
   onSelectFeature,
   cutoff,
@@ -107,10 +149,126 @@ export default function WhyPanel({
   activeExplanation,
   showSourceSummary,
 }: WhyPanelProps) {
+  const [sourceFilter, setSourceFilter] = useState<SourceFilterKind>("all");
+  const [sourceQuery, setSourceQuery] = useState<string>("");
+  const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
+
   const placeName = (id: string) => {
     const p = graph?.places.find((x) => x.id === id);
     return p?.name ? `${p.name} (${p.id})` : id;
   };
+
+  // Unified data-source inspection rows across all graph entity types
+  const allSourceRows = useMemo(() => {
+    if (!graph) return [];
+    const rows: Array<{
+      kind: SelectedFeature["kind"];
+      typeLabel: string;
+      id: string;
+      name: string;
+      confidence: string;
+      dataStatus: string;
+      lastVerified: string | null;
+      retrievedAt: string | null;
+      sourceId: string | null;
+      sourceUrl: string | null;
+    }> = [];
+
+    for (const p of graph.places) {
+      rows.push({
+        kind: "place",
+        typeLabel: `Place (${p.type})`,
+        id: p.id,
+        name: p.name || p.id,
+        confidence: p.provenance.confidence || "unverified",
+        dataStatus: p.provenance.data_status || "unknown",
+        lastVerified: p.provenance.last_verified,
+        retrievedAt: p.provenance.retrieved_at,
+        sourceId: p.provenance.source_id,
+        sourceUrl: p.provenance.source_url,
+      });
+    }
+    for (const s of graph.segments) {
+      rows.push({
+        kind: "segment",
+        typeLabel: "RoadSegment",
+        id: s.id,
+        name: s.name || s.ref || `${s.from_place_id}→${s.to_place_id}`,
+        confidence: s.provenance.confidence || "unverified",
+        dataStatus: s.provenance.data_status || "unknown",
+        lastVerified: s.provenance.last_verified,
+        retrievedAt: s.provenance.retrieved_at,
+        sourceId: s.provenance.source_id,
+        sourceUrl: s.provenance.source_url,
+      });
+    }
+    for (const h of graph.hospitals) {
+      rows.push({
+        kind: "hospital",
+        typeLabel: "Hospital",
+        id: h.id,
+        name: h.name || h.id,
+        confidence: h.provenance.confidence || "unverified",
+        dataStatus: h.provenance.data_status || "unknown",
+        lastVerified: h.provenance.last_verified,
+        retrievedAt: h.provenance.retrieved_at,
+        sourceId: h.provenance.source_id,
+        sourceUrl: h.provenance.source_url,
+      });
+    }
+    for (const b of graph.bridges) {
+      rows.push({
+        kind: "bridge",
+        typeLabel: "Bridge",
+        id: b.id,
+        name: b.name || b.id,
+        confidence: b.provenance.confidence || "unverified",
+        dataStatus: b.provenance.data_status || "unknown",
+        lastVerified: b.provenance.last_verified,
+        retrievedAt: b.provenance.retrieved_at,
+        sourceId: b.provenance.source_id,
+        sourceUrl: b.provenance.source_url,
+      });
+    }
+    for (const c of graph.closures) {
+      rows.push({
+        kind: "closure",
+        typeLabel: "ClosureEvent",
+        id: c.id,
+        name: c.description || c.id,
+        confidence: c.confidence || "unverified",
+        dataStatus: c.data_status || "simulated",
+        lastVerified: null,
+        retrievedAt: c.started_at,
+        sourceId: c.origin,
+        sourceUrl: c.source_url,
+      });
+    }
+    return rows;
+  }, [graph]);
+
+  const filteredSourceRows = useMemo(() => {
+    const q = sourceQuery.trim().toLowerCase();
+    return allSourceRows.filter((r) => {
+      if (sourceFilter === "verified" && r.confidence !== "verified") return false;
+      if (sourceFilter === "unverified" && r.confidence === "verified") return false;
+      if (
+        sourceFilter !== "all" &&
+        sourceFilter !== "verified" &&
+        sourceFilter !== "unverified" &&
+        r.kind !== sourceFilter
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        r.id.toLowerCase().includes(q) ||
+        r.name.toLowerCase().includes(q) ||
+        r.typeLabel.toLowerCase().includes(q) ||
+        (r.sourceId || "").toLowerCase().includes(q)
+      );
+    });
+  }, [allSourceRows, sourceFilter, sourceQuery]);
 
   // Resolve selected feature details from the loaded graph + active calculations
   const renderSelectedFeature = () => {
@@ -142,6 +300,8 @@ export default function WhyPanel({
             <span className="feature-type">Place ({p.type})</span>
             <strong>{p.name || p.id}</strong>
             <code>{p.id}</code>
+            <ConfidenceBadge value={p.provenance.confidence} />
+            <StatusBadge value={p.provenance.data_status} />
           </div>
           <dl className="kv-list">
             <div>
@@ -232,6 +392,8 @@ export default function WhyPanel({
             <span className="feature-type">RoadSegment</span>
             <strong>{s.name || s.ref || s.id}</strong>
             <code>{s.id}</code>
+            <ConfidenceBadge value={s.provenance.confidence} />
+            <StatusBadge value={s.provenance.data_status} />
           </div>
           <dl className="kv-list">
             <div>
@@ -359,6 +521,8 @@ export default function WhyPanel({
             <span className="feature-type">Hospital</span>
             <strong>{h.name || h.id}</strong>
             <code>{h.id}</code>
+            <ConfidenceBadge value={h.provenance.confidence} />
+            <StatusBadge value={h.provenance.data_status} />
           </div>
           <dl className="kv-list">
             <div>
@@ -431,6 +595,8 @@ export default function WhyPanel({
             <span className="feature-type">Bridge</span>
             <strong>{b.name || b.id}</strong>
             <code>{b.id}</code>
+            <ConfidenceBadge value={b.provenance.confidence} />
+            <StatusBadge value={b.provenance.data_status} />
           </div>
           <dl className="kv-list">
             <div>
@@ -512,6 +678,7 @@ export default function WhyPanel({
             <span className="feature-type">ClosureEvent</span>
             <strong>{c.id}</strong>
             <StatusBadge value={c.status} />
+            <ConfidenceBadge value={c.confidence} />
             <StatusBadge value={c.history_label ?? c.data_status} />
           </div>
           <dl className="kv-list">
@@ -581,6 +748,38 @@ export default function WhyPanel({
               </dd>
             </div>
           </dl>
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => onReplayEvent(c.id)}
+            >
+              Replay Event Impact
+            </button>
+            {!c.remembered_at && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => onRememberEvent(c.id)}
+              >
+                Remember in History
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => onExportAlerts(c.id, "json")}
+            >
+              Export Drafts (JSON)
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => onExportAlerts(c.id, "text")}
+            >
+              Export Drafts (Text)
+            </button>
+          </div>
         </div>
       );
     }
@@ -588,16 +787,18 @@ export default function WhyPanel({
     return null;
   };
 
+  const baseComp = reroute?.path_explanation?.baseline_comparison;
+
   return (
     <aside className="pane right-pane" aria-label="Why explanation, provenance, and graph details">
       <div className="pane-header">
-        <h2>&ldquo;Why?&rdquo; Graph Evidence &amp; Provenance</h2>
+        <h2>&ldquo;Why?&rdquo; Graph Evidence, Timeline &amp; Provenance</h2>
       </div>
 
       <div className="pane-scroll scroller">
         {/* Latest Backend Summary */}
         {activeExplanation && (
-          <section className="card highlight-card">
+          <section className="card highlight-card" aria-live="polite">
             <h3>Latest Graph Calculation</h3>
             <p className="explanation-text">{activeExplanation}</p>
           </section>
@@ -664,6 +865,13 @@ export default function WhyPanel({
                     </option>
                   ))}
                 </optgroup>
+                <optgroup label="Closures">
+                  {graph.closures.map((c) => (
+                    <option key={c.id} value={`closure:${c.id}`}>
+                      {c.id} [{c.data_status}]
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             )}
           </div>
@@ -673,9 +881,14 @@ export default function WhyPanel({
         {/* 2. Closure Reachability & Hospital Impact */}
         {cutoff && (
           <section className="card">
-            <h3>
-              Closure Impact &amp; Reachability (<code>{cutoff.event_id}</code>)
-            </h3>
+            <div className="section-title-row">
+              <h3>
+                Closure Impact &amp; Reachability (<code>{cutoff.event_id}</code>)
+              </h3>
+              {replayedEventId === cutoff.event_id && (
+                <span className="badge info">TIMELINE REPLAY</span>
+              )}
+            </div>
             <dl className="kv-list">
               <div>
                 <dt>Origin Reference</dt>
@@ -833,68 +1046,158 @@ export default function WhyPanel({
           </section>
         )}
 
-        {/* 3. Alternate Route & Travel-Time Explanation */}
+        {/* 3. Alternate Route & Baseline Comparison */}
         {reroute && (
           <section className="card">
             <h3>
-              Route &amp; Path Explanation ({placeName(reroute.from_place_id)} →{" "}
+              Alternative-Route Comparison ({placeName(reroute.from_place_id)} →{" "}
               {placeName(reroute.to_place_id)})
             </h3>
-            <dl className="kv-list">
-              <div>
-                <dt>Status</dt>
-                <dd>
-                  <StatusBadge value={reroute.status} />
-                  {reroute.reason && <span> — {reroute.reason}</span>}
-                </dd>
+
+            {/* Side-by-Side Comparison Grid */}
+            <div className="comparison-grid">
+              <div className="subcard">
+                <strong>Baseline Route (Open Network)</strong>
+                {reroute.baseline_route ? (
+                  <dl className="kv-list">
+                    <div>
+                      <dt>Travel Time</dt>
+                      <dd>
+                        <strong>{reroute.baseline_route.total_travel_time_min} min</strong>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Distance</dt>
+                      <dd>
+                        {reroute.baseline_route.total_length_km != null
+                          ? `${reroute.baseline_route.total_length_km} km`
+                          : "unknown"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Segments</dt>
+                      <dd>
+                        <code>
+                          {reroute.baseline_route.segments.map((s) => s.segment_id).join(" → ")}
+                        </code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Nodes</dt>
+                      <dd>
+                        <code>{reroute.baseline_route.node_names.join(" → ")}</code>
+                      </dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="muted-note">No baseline route between these places.</p>
+                )}
               </div>
-              {reroute.route && (
-                <>
+
+              <div
+                className={`subcard ${
+                  reroute.status === "route_found" ? "info-subcard" : "danger-subcard"
+                }`}
+              >
+                <strong>
+                  Active / Detour Route{" "}
+                  {reroute.avoid_event_id ? `(avoiding ${reroute.avoid_event_id})` : ""}
+                </strong>
+                {reroute.route ? (
+                  <dl className="kv-list">
+                    <div>
+                      <dt>Travel Time</dt>
+                      <dd>
+                        <strong>{reroute.route.total_travel_time_min} min</strong>
+                        {reroute.additional_travel_time_min != null && (
+                          <span className="detour-delta">
+                            {" "}
+                            ({reroute.additional_travel_time_min >= 0 ? "+" : ""}
+                            {reroute.additional_travel_time_min} min)
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Distance</dt>
+                      <dd>
+                        {reroute.route.total_length_km != null
+                          ? `${reroute.route.total_length_km} km`
+                          : "unknown"}
+                        {baseComp?.detour_length_delta_km != null && (
+                          <span>
+                            {" "}
+                            ({baseComp.detour_length_delta_km >= 0 ? "+" : ""}
+                            {baseComp.detour_length_delta_km} km)
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Segments</dt>
+                      <dd>
+                        <code>
+                          {reroute.route.segments.map((s) => s.segment_id).join(" → ")}
+                        </code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Nodes</dt>
+                      <dd>
+                        <code>{reroute.route.node_names.join(" → ")}</code>
+                      </dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="muted-note">
+                    <StatusBadge value="no_route" /> {reroute.reason || "No directed path exists."}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {baseComp && !baseComp.same_as_baseline && (
+              <div className="subcard warn-subcard">
+                <div>
+                  <strong>Detour Segment Diff vs. Baseline:</strong>
+                </div>
+                {baseComp.segments_avoided_from_baseline.length > 0 && (
                   <div>
-                    <dt>Estimated Travel Time</dt>
-                    <dd>
-                      <strong>{reroute.route.total_travel_time_min} min</strong> (
-                      {reroute.route.total_length_km != null
-                        ? `${reroute.route.total_length_km} km`
-                        : "length unknown"}
-                      )
-                    </dd>
+                    Avoided baseline segment(s):{" "}
+                    {baseComp.segments_avoided_from_baseline.map((sid) => (
+                      <button
+                        key={sid}
+                        type="button"
+                        className="entity-chip danger"
+                        onClick={() => onSelectFeature({ kind: "segment", id: sid })}
+                      >
+                        − {sid}
+                      </button>
+                    ))}
                   </div>
+                )}
+                {baseComp.segments_added_in_detour.length > 0 && (
                   <div>
-                    <dt>Baseline Travel Time</dt>
-                    <dd>
-                      {reroute.baseline_route
-                        ? `${reroute.baseline_route.total_travel_time_min} min`
-                        : "No baseline route"}
-                    </dd>
+                    Added detour segment(s):{" "}
+                    {baseComp.segments_added_in_detour.map((sid) => (
+                      <button
+                        key={sid}
+                        type="button"
+                        className="entity-chip"
+                        onClick={() => onSelectFeature({ kind: "segment", id: sid })}
+                      >
+                        + {sid}
+                      </button>
+                    ))}
                   </div>
-                  <div>
-                    <dt>Additional Detour Time</dt>
-                    <dd>
-                      {reroute.additional_travel_time_min != null ? (
-                        <strong className="detour-delta">
-                          {reroute.additional_travel_time_min >= 0 ? "+" : ""}
-                          {reroute.additional_travel_time_min} min
-                        </strong>
-                      ) : (
-                        "n/a"
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Node Path</dt>
-                    <dd>
-                      <code>{reroute.route.node_names.join(" → ")}</code>
-                    </dd>
-                  </div>
-                </>
-              )}
-            </dl>
+                )}
+              </div>
+            )}
 
             {reroute.path_explanation.contributions &&
               reroute.path_explanation.contributions.length > 0 && (
                 <>
-                  <h4>Segment Contributions (Dijkstra Minimum Travel Time)</h4>
+                  <h4>Selected Route Segment Breakdown (Dijkstra Minimum Travel Time)</h4>
                   <div className="table-wrapper scroller">
                     <table
                       className="data-table"
@@ -953,21 +1256,60 @@ export default function WhyPanel({
           </section>
         )}
 
-        {/* 4. Synthetic Draft Alerts */}
+        {/* 4. Synthetic Draft Alerts & Export */}
         {alerts && (
           <section className="card">
-            <h3>
-              Synthetic Community Draft Alerts (<code>{alerts.event_id}</code>)
-            </h3>
+            <div className="section-title-row">
+              <h3>
+                Synthetic Community Draft Alerts (<code>{alerts.event_id}</code>)
+              </h3>
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className="btn-chip"
+                  onClick={() => onExportAlerts(alerts.event_id, "json")}
+                >
+                  Export JSON
+                </button>
+                <button
+                  type="button"
+                  className="btn-chip"
+                  onClick={() => onExportAlerts(alerts.event_id, "text")}
+                >
+                  Export Text (.txt)
+                </button>
+                {exportedTextPreview && (
+                  <button
+                    type="button"
+                    className="btn-chip"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(exportedTextPreview);
+                      setCopiedNotice("Copied draft alert sheet to clipboard.");
+                      setTimeout(() => setCopiedNotice(null), 2500);
+                    }}
+                  >
+                    Copy Text
+                  </button>
+                )}
+              </div>
+            </div>
             <p className="muted-note">
-              {alerts.disclaimer} ({alerts.alerts.length} draft(s) generated)
+              {alerts.disclaimer} ({alerts.alerts.length} draft(s) generated — all{" "}
+              <code>status=&quot;draft&quot;</code>, <code>sent=false</code>)
             </p>
+            {copiedNotice && (
+              <p className="muted-note" role="status">
+                <strong>{copiedNotice}</strong>
+              </p>
+            )}
             {alerts.alerts.map((a) => (
               <div key={a.alert_id} className="subcard warn-subcard">
                 <div className="alert-header">
                   <strong>{a.target_name || a.target_place_id}</strong>
-                  <StatusBadge value={a.status} />
-                  <span className="badge neutral">sent: {String(a.sent)}</span>
+                  <div>
+                    <StatusBadge value={a.status} />{" "}
+                    <span className="badge neutral">sent: {String(a.sent)}</span>
+                  </div>
                 </div>
                 <p className="alert-body">{a.text}</p>
                 <div className="alert-meta">
@@ -976,10 +1318,121 @@ export default function WhyPanel({
                 </div>
               </div>
             ))}
+            {exportedTextPreview && (
+              <details open>
+                <summary>Exported Plain-Text Draft Alert Sheet Preview</summary>
+                <pre className="code-block">{exportedTextPreview}</pre>
+              </details>
+            )}
           </section>
         )}
 
-        {/* 5. Closure Resolution & Baseline Audit */}
+        {/* 5. Closure Event Timeline & Historical Replay */}
+        <section className="card">
+          <div className="section-title-row">
+            <h3>Closure Event Timeline ({timeline.length} stored events)</h3>
+            {replayedEventId && (
+              <button type="button" className="btn-chip" onClick={onExitReplay}>
+                Exit Replay ({replayedEventId})
+              </button>
+            )}
+          </div>
+          <p className="muted-note">
+            Generated from real stored <code>ClosureEvent</code> records in the graph. Click{" "}
+            <strong>Replay</strong> on any historical or simulated event to inspect its reachability,
+            detour route comparison, and draft alert plan.
+          </p>
+          {timeline.length === 0 ? (
+            <p className="muted-note">No closure events stored in the graph yet.</p>
+          ) : (
+            <div className="table-wrapper scroller">
+              <table
+                className="data-table"
+                style={
+                  {
+                    "--label-1": '"# / Event ID"',
+                    "--label-2": '"Started / Status"',
+                    "--label-3": '"Origin / Conf."',
+                    "--label-4": '"Actions"',
+                  } as React.CSSProperties
+                }
+              >
+                <thead>
+                  <tr>
+                    <th># / Event ID</th>
+                    <th>Started / Status</th>
+                    <th>Origin / Conf.</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {timeline.map((ev) => {
+                    const isSim = ev.data_status === "simulated";
+                    const isReplaying = replayedEventId === ev.id;
+                    return (
+                      <tr
+                        key={ev.id}
+                        className={isReplaying ? "row-highlight" : ""}
+                      >
+                        <th>
+                          #{ev.index}{" "}
+                          <button
+                            type="button"
+                            className="inline-link"
+                            onClick={() => onSelectFeature({ kind: "closure", id: ev.id })}
+                          >
+                            {ev.id}
+                          </button>
+                          <div className="muted-note">
+                            Segs: <code>{ev.blocks_segments.join(", ") || "none"}</code>
+                          </div>
+                        </th>
+                        <td>
+                          <div>{ev.started_at || "undated"}</div>
+                          <StatusBadge value={ev.status} />{" "}
+                          {ev.remembered && <span className="badge ok">remembered</span>}
+                        </td>
+                        <td>
+                          <span className={`badge ${isSim ? "warn" : "info"}`}>
+                            {isSim ? "SIMULATED" : "OBSERVED"}
+                          </span>{" "}
+                          <ConfidenceBadge value={ev.confidence} />
+                        </td>
+                        <td>
+                          <div className="btn-row">
+                            <button
+                              type="button"
+                              className={`btn-chip ${isReplaying ? "active" : ""}`}
+                              onClick={() => onReplayEvent(ev.id)}
+                            >
+                              {isReplaying ? "Replaying" : "Replay"}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-chip"
+                              onClick={() => onExportAlerts(ev.id, "json")}
+                            >
+                              JSON
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-chip"
+                              onClick={() => onExportAlerts(ev.id, "text")}
+                            >
+                              TXT
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* 6. Closure Resolution & Baseline Audit */}
         {resolveAudit && (
           <section className="card">
             <h3>
@@ -1031,7 +1484,7 @@ export default function WhyPanel({
           </section>
         )}
 
-        {/* 6. Network Weak Links */}
+        {/* 7. Network Weak Links */}
         {weakLinks && (
           <section className="card">
             <h3>
@@ -1046,7 +1499,7 @@ export default function WhyPanel({
                     "--label-1": '"Rank / Segment"',
                     "--label-2": '"Betweenness"',
                     "--label-3": '"SP Pairs"',
-                    "--label-4": '"Cut-Off If Closed"',
+                    "--label-4": '"Cut-Off / Conf."',
                   } as React.CSSProperties
                 }
               >
@@ -1055,7 +1508,7 @@ export default function WhyPanel({
                     <th>Rank / Segment</th>
                     <th>Betweenness</th>
                     <th>SP Pairs</th>
-                    <th>Cut-Off If Closed</th>
+                    <th>Cut-Off / Conf.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1079,7 +1532,8 @@ export default function WhyPanel({
                       <td>
                         {s.if_closed
                           ? `${s.if_closed.settlements_cut_off.length} settlement(s)`
-                          : "n/a"}
+                          : "n/a"}{" "}
+                        <ConfidenceBadge value={s.confidence} />
                       </td>
                     </tr>
                   ))}
@@ -1097,7 +1551,8 @@ export default function WhyPanel({
                       className="entity-chip"
                       onClick={() => onSelectFeature({ kind: "bridge", id: b.bridge_id })}
                     >
-                      #{b.rank} {b.name || b.bridge_id} ({b.betweenness.toFixed(4)})
+                      #{b.rank} {b.name || b.bridge_id} ({b.betweenness.toFixed(4)}) [
+                      {b.confidence || "unverified"}]
                     </button>
                   ))}
                 </div>
@@ -1106,7 +1561,7 @@ export default function WhyPanel({
           </section>
         )}
 
-        {/* 7. Seasonal Risk Ranking */}
+        {/* 8. Seasonal Risk Ranking */}
         {seasonalRisk && (
           <section className="card">
             <h3>Seasonal Monsoon Risk (Month {seasonalRisk.month})</h3>
@@ -1162,7 +1617,7 @@ export default function WhyPanel({
                             >
                               {r.id}
                             </button>{" "}
-                            ({r.kind})
+                            ({r.kind}) <ConfidenceBadge value={r.confidence} />
                           </th>
                           <td>
                             <StatusBadge value={r.monsoon_risk ?? "unlabelled"} />
@@ -1203,10 +1658,10 @@ export default function WhyPanel({
           </section>
         )}
 
-        {/* 8. Source & Confidence Summary */}
-        {(showSourceSummary || graph) && graph && (
+        {/* 9. Data-Source & Confidence Inspection */}
+        {graph && (
           <section className="card">
-            <h3>Dataset Source &amp; Confidence Summary</h3>
+            <h3>Data-Source &amp; Confidence Inspection</h3>
             <dl className="kv-list">
               <div>
                 <dt>Dataset ID / Kind</dt>
@@ -1240,10 +1695,107 @@ export default function WhyPanel({
               </div>
             </dl>
             <p className="muted-note">{graph.provenance_summary.note}</p>
+
+            <details open={showSourceSummary}>
+              <summary>
+                Inspect Entity Provenance &amp; Data Sources ({filteredSourceRows.length} /{" "}
+                {allSourceRows.length} records)
+              </summary>
+              <div className="source-filter-bar">
+                <div className="chip-row" role="group" aria-label="Filter entities by confidence or type">
+                  {(
+                    [
+                      ["all", "All"],
+                      ["verified", "Verified"],
+                      ["unverified", "Unverified"],
+                      ["place", "Places"],
+                      ["segment", "Segments"],
+                      ["hospital", "Hospitals"],
+                      ["bridge", "Bridges"],
+                      ["closure", "Closures"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`btn-chip ${sourceFilter === key ? "active" : ""}`}
+                      onClick={() => setSourceFilter(key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={sourceQuery}
+                  onChange={(e) => setSourceQuery(e.target.value)}
+                  placeholder="Filter by ID, name, or source_id…"
+                  aria-label="Filter provenance records by text"
+                />
+              </div>
+              <div className="table-wrapper scroller">
+                <table
+                  className="data-table"
+                  style={
+                    {
+                      "--label-1": '"Entity"',
+                      "--label-2": '"Confidence / Status"',
+                      "--label-3": '"Last Verified"',
+                      "--label-4": '"Source"',
+                    } as React.CSSProperties
+                  }
+                >
+                  <thead>
+                    <tr>
+                      <th>Entity</th>
+                      <th>Confidence / Status</th>
+                      <th>Last Verified</th>
+                      <th>Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredSourceRows.slice(0, 80).map((row) => (
+                      <tr key={`${row.kind}:${row.id}`}>
+                        <th>
+                          <button
+                            type="button"
+                            className="inline-link"
+                            onClick={() => onSelectFeature({ kind: row.kind, id: row.id })}
+                          >
+                            {row.id}
+                          </button>
+                          <div className="muted-note">
+                            {row.name} ({row.typeLabel})
+                          </div>
+                        </th>
+                        <td>
+                          <ConfidenceBadge value={row.confidence} />{" "}
+                          <StatusBadge value={row.dataStatus} />
+                        </td>
+                        <td>{row.lastVerified ?? "null (unverified)"}</td>
+                        <td>
+                          {row.sourceUrl ? (
+                            <a
+                              href={row.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {row.sourceId || "source link"}
+                            </a>
+                          ) : (
+                            <code>{row.sourceId ?? "synthetic"}</code>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
           </section>
         )}
 
-        {/* 9. Executed Cypher Queries & Algorithm Traceability */}
+        {/* 10. Executed Cypher Queries & Algorithm Traceability */}
         <section className="card">
           <h3>Executed Cypher &amp; Algorithm Trace ({activeCypher.length} queries)</h3>
           {activeAlgorithm && (
@@ -1270,4 +1822,3 @@ export default function WhyPanel({
     </aside>
   );
 }
-

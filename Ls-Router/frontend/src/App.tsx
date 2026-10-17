@@ -3,13 +3,18 @@ import BackendStatus from "./BackendStatus";
 import MapView from "./MapView";
 import WhyPanel from "./WhyPanel";
 import {
+  fetchAlertPlanExportJson,
+  fetchAlertPlanExportText,
   fetchCutoff,
   fetchGraph,
+  fetchHistory,
+  fetchReplay,
   fetchReroute,
   fetchSeasonalRisk,
   fetchWeakLinks,
   postClosure,
   postDraftAlerts,
+  postRememberClosure,
   postResolveClosure,
 } from "./api";
 import { SAFETY_DISCLAIMER } from "./config";
@@ -18,10 +23,12 @@ import type {
   CutoffResponse,
   DraftAlertsResponse,
   GraphResponse,
+  HistoryResponse,
   RerouteResponse,
   ResolveClosureResponse,
   SelectedFeature,
   SeasonalRiskResponse,
+  TimelineEntry,
   WeakLinksResponse,
 } from "./types";
 
@@ -33,9 +40,23 @@ function nowTimeStr(): string {
   });
 }
 
+function triggerFileDownload(filename: string, content: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function App() {
   const [graph, setGraph] = useState<GraphResponse | null>(null);
+  const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [loadingLabel, setLoadingLabel] = useState<string>("Working…");
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   // Active backend analysis states
@@ -44,7 +65,9 @@ export default function App() {
   const [weakLinks, setWeakLinks] = useState<WeakLinksResponse | null>(null);
   const [seasonalRisk, setSeasonalRisk] = useState<SeasonalRiskResponse | null>(null);
   const [alerts, setAlerts] = useState<DraftAlertsResponse | null>(null);
+  const [exportedTextPreview, setExportedTextPreview] = useState<string | null>(null);
   const [resolveAudit, setResolveAudit] = useState<ResolveClosureResponse | null>(null);
+  const [replayedEventId, setReplayedEventId] = useState<string | null>(null);
 
   // Latest executed Cypher, algorithm, warnings, and explanation
   const [activeCypher, setActiveCypher] = useState<string[]>([]);
@@ -56,6 +79,7 @@ export default function App() {
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
   const [showTopologyOverlay, setShowTopologyOverlay] = useState<boolean>(false);
   const [showSourceSummary, setShowSourceSummary] = useState<boolean>(false);
+  const [mobilePane, setMobilePane] = useState<"controls" | "map" | "why">("map");
 
   // Left-pane form controls
   const [incidentText, setIncidentText] = useState<string>("Landslide at NH29 near kilometre 42.");
@@ -80,14 +104,21 @@ export default function App() {
     ]);
   }, []);
 
-  // Load corridor graph from GET /api/graph
+  // Load corridor graph from GET /api/graph and stored event timeline from GET /api/history
   const loadGraphData = useCallback(
     async (silent = false): Promise<GraphResponse | null> => {
-      if (!silent) setLoading(true);
+      if (!silent) {
+        setLoading(true);
+        setLoadingLabel("Loading corridor graph & event history…");
+      }
       setErrorBanner(null);
       try {
-        const g = await fetchGraph(true);
+        const [g, h] = await Promise.all([
+          fetchGraph(true),
+          fetchHistory().catch(() => null),
+        ]);
         setGraph(g);
+        if (h) setHistory(h);
         if (!silent) {
           setActiveCypher(g.cypher);
           setActiveWarnings(g.warnings);
@@ -135,6 +166,7 @@ export default function App() {
     ) => {
       if (!description.trim()) return;
       setLoading(true);
+      setLoadingLabel("Resolving location & simulating road closure…");
       setErrorBanner(null);
 
       const segToUse =
@@ -194,6 +226,7 @@ export default function App() {
         // Applied closure: refresh graph, calculate cut-off settlements/hospitals, and calculate alternate route
         const eventId = res.event_id!;
         const blockedSegId = res.target_segment?.id;
+        setReplayedEventId(null);
         if (blockedSegId) {
           setSelectedFeature({ kind: "segment", id: blockedSegId });
         }
@@ -276,11 +309,13 @@ export default function App() {
   const handleClearClosure = useCallback(
     async (eventId: string) => {
       setLoading(true);
+      setLoadingLabel(`Resolving closure ${eventId} & auditing baseline…`);
       setErrorBanner(null);
       try {
         const res = await postResolveClosure(eventId, rememberInHistory);
         const updatedGraph = await loadGraphData(true);
         setResolveAudit(res);
+        setReplayedEventId(null);
 
         // If no active closures remain, clear cutoff/alerts and recompute baseline route
         const remainingActive =
@@ -323,14 +358,113 @@ export default function App() {
     [rememberInHistory, loadGraphData, routeFromId, routeToId, appendLog],
   );
 
+  // Remember a closure in historical memory via POST /api/remember/{event_id}
+  const handleRememberClosure = useCallback(
+    async (eventId: string) => {
+      setLoading(true);
+      setLoadingLabel(`Persisting ${eventId} in historical memory…`);
+      setErrorBanner(null);
+      try {
+        const res = await postRememberClosure(eventId);
+        await loadGraphData(true);
+        const expl =
+          typeof res.explanation === "string"
+            ? res.explanation
+            : `Persisted ${eventId} in historical memory.`;
+        setActiveExplanation(expl);
+        appendLog({
+          role: "system",
+          title: `Remembered ${eventId} in History`,
+          detail: expl,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setErrorBanner(msg);
+        appendLog({
+          role: "error",
+          title: `Failed to Remember ${eventId}`,
+          detail: msg,
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadGraphData, appendLog],
+  );
+
+  // Replay any stored closure event from the timeline via GET /api/replay/{event_id}
+  const handleReplayClosure = useCallback(
+    async (eventId: string) => {
+      setLoading(true);
+      setLoadingLabel(`Replaying stored event ${eventId} from timeline…`);
+      setErrorBanner(null);
+      try {
+        const res = await fetchReplay(eventId, routeFromId || null, routeToId || null, true);
+        setReplayedEventId(eventId);
+        setCutoff(res.cutoff);
+        setReroute(res.reroute);
+        setAlerts(res.alerts);
+        setExportedTextPreview(null);
+        setActiveCypher(res.cypher);
+        setActiveAlgorithm(res.algorithm);
+        setActiveWarnings(res.warnings);
+        setActiveExplanation(res.explanation);
+        if (res.event.blocks_segments.length > 0) {
+          setSelectedFeature({ kind: "segment", id: res.event.blocks_segments[0] });
+        } else {
+          setSelectedFeature({ kind: "closure", id: eventId });
+        }
+        appendLog({
+          role: "system",
+          title: `Timeline Replay: ${eventId}`,
+          detail: res.explanation,
+          eventId,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setErrorBanner(msg);
+        appendLog({
+          role: "error",
+          title: `Timeline Replay Failed (${eventId})`,
+          detail: msg,
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [routeFromId, routeToId, appendLog],
+  );
+
+  const handleExitReplay = useCallback(async () => {
+    setReplayedEventId(null);
+    setCutoff(null);
+    setAlerts(null);
+    setExportedTextPreview(null);
+    if (routeFromId && routeToId) {
+      try {
+        const baseRoute = await fetchReroute(routeFromId, routeToId);
+        setReroute(baseRoute);
+      } catch {
+        // ignore
+      }
+    }
+    appendLog({
+      role: "system",
+      title: "Exited Timeline Replay",
+      detail: "Restored view to current active corridor state.",
+    });
+  }, [routeFromId, routeToId, appendLog]);
+
   // Draft community SMS alerts via POST /api/alerts/{event_id}
   const handleDraftAlerts = useCallback(
     async (eventId: string) => {
       setLoading(true);
+      setLoadingLabel(`Drafting synthetic community alerts for ${eventId}…`);
       setErrorBanner(null);
       try {
         const res = await postDraftAlerts(eventId);
         setAlerts(res);
+        setExportedTextPreview(null);
         setActiveCypher(res.cypher);
         setActiveAlgorithm(res.algorithm);
         setActiveWarnings(res.warnings);
@@ -355,10 +489,57 @@ export default function App() {
     [appendLog],
   );
 
+  // Export draft alert plan as JSON or plain text via GET /api/alerts/{event_id}/export
+  const handleExportAlerts = useCallback(
+    async (eventId: string, format: "json" | "text") => {
+      setLoading(true);
+      setLoadingLabel(`Exporting draft alert plan (${format.toUpperCase()}) for ${eventId}…`);
+      setErrorBanner(null);
+      try {
+        if (format === "json") {
+          const exported = await fetchAlertPlanExportJson(eventId, true);
+          setAlerts(exported);
+          setExportedTextPreview(exported.text_plan);
+          triggerFileDownload(
+            `draft-alerts-${eventId}.json`,
+            JSON.stringify(exported, null, 2),
+            "application/json",
+          );
+          appendLog({
+            role: "system",
+            title: `Exported Draft Alert Plan (JSON) for ${eventId}`,
+            detail: `${exported.alerts.length} draft alert(s) exported (all_drafts=${exported.all_drafts}, any_sent=${exported.any_sent}).`,
+          });
+        } else {
+          const textPlan = await fetchAlertPlanExportText(eventId, true);
+          setExportedTextPreview(textPlan);
+          triggerFileDownload(`draft-alerts-${eventId}.txt`, textPlan, "text/plain;charset=utf-8");
+          appendLog({
+            role: "system",
+            title: `Exported Draft Alert Plan (Text) for ${eventId}`,
+            detail: `Downloaded draft-alerts-${eventId}.txt (SYNTHETIC DRAFTS — NOT SENT).`,
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setErrorBanner(msg);
+        appendLog({
+          role: "error",
+          title: `Alert Export (${format.toUpperCase()}) Failed`,
+          detail: msg,
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [appendLog],
+  );
+
   // Inspect cutoff for an event via GET /api/cutoff/{event_id}
   const handleInspectCutoff = useCallback(
     async (eventId: string) => {
       setLoading(true);
+      setLoadingLabel(`Calculating reachability & hospital access for ${eventId}…`);
       setErrorBanner(null);
       try {
         const res = await fetchCutoff(eventId);
@@ -386,9 +567,10 @@ export default function App() {
   const handleCalculateReroute = useCallback(async () => {
     if (!routeFromId || !routeToId) return;
     setLoading(true);
+    setLoadingLabel(`Calculating minimum-time route ${routeFromId} → ${routeToId}…`);
     setErrorBanner(null);
     try {
-      const res = await fetchReroute(routeFromId, routeToId);
+      const res = await fetchReroute(routeFromId, routeToId, replayedEventId);
       setReroute(res);
       setActiveCypher(res.cypher);
       setActiveAlgorithm(res.algorithm);
@@ -410,11 +592,12 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [routeFromId, routeToId, appendLog]);
+  }, [routeFromId, routeToId, replayedEventId, appendLog]);
 
   // Show weak links via GET /api/weak-links
   const handleShowWeakLinks = useCallback(async () => {
     setLoading(true);
+    setLoadingLabel("Computing corridor betweenness centrality weak links…");
     setErrorBanner(null);
     try {
       const res = await fetchWeakLinks(graph?.corridors[0] ?? null, 5);
@@ -448,6 +631,7 @@ export default function App() {
   const handleSeasonalRisk = useCallback(
     async (month: number, label: string) => {
       setLoading(true);
+      setLoadingLabel(`Computing seasonal monsoon risk ranking for ${label}…`);
       setErrorBanner(null);
       try {
         const res = await fetchSeasonalRisk(month);
@@ -481,6 +665,27 @@ export default function App() {
     [graph],
   );
 
+  // Chronological timeline generated from real stored event history
+  const timelineEvents: TimelineEntry[] = useMemo(() => {
+    if (history && history.timeline.length > 0) {
+      return history.timeline;
+    }
+    if (!graph) return [];
+    const sorted = [...graph.closures].sort((a, b) => {
+      const aHas = a.started_at ? 0 : 1;
+      const bHas = b.started_at ? 0 : 1;
+      if (aHas !== bHas) return aHas - bHas;
+      const cmp = (a.started_at || "").localeCompare(b.started_at || "");
+      return cmp !== 0 ? cmp : a.id.localeCompare(b.id);
+    });
+    return sorted.map((c, i) => ({ ...c, index: i + 1 }));
+  }, [history, graph]);
+
+  const currentReplayIdx = useMemo(() => {
+    if (!replayedEventId) return -1;
+    return timelineEvents.findIndex((e) => e.id === replayedEventId);
+  }, [replayedEventId, timelineEvents]);
+
   // Pick sample segments from the loaded graph for 1-click presets
   const sampleSegments = useMemo(() => {
     if (!graph) return [];
@@ -490,7 +695,12 @@ export default function App() {
   }, [graph]);
 
   return (
-    <div className="app">
+    <div className="app" aria-busy={loading}>
+      {/* Accessibility Skip Link */}
+      <a href="#main-map-pane" className="skip-link">
+        Skip to interactive corridor map
+      </a>
+
       {/* Top Bar */}
       <header className="bar">
         <div className="brand">
@@ -498,7 +708,7 @@ export default function App() {
           <span className="subtitle">Dimapur–Kohima NH29 Corridor Graph</span>
         </div>
         {graph && (
-          <div className="graph-stats" aria-label="Loaded corridor graph counts">
+          <div className="graph-stats" aria-label="Loaded corridor graph counts and source confidence">
             <span>
               <strong>{graph.counts.places}</strong> places
             </span>
@@ -513,6 +723,12 @@ export default function App() {
             </span>
             <span className={graph.counts.active_closures > 0 ? "stat-alert" : ""}>
               <strong>{graph.counts.active_closures}</strong> active closure(s)
+            </span>
+            <span className="badge verified" title="Manually verified records">
+              {graph.provenance_summary.verified} verified
+            </span>
+            <span className="badge unverified" title="Derived / unverified records">
+              {graph.provenance_summary.unverified} unverified
             </span>
           </div>
         )}
@@ -529,26 +745,125 @@ export default function App() {
       </header>
 
       {/* Mandatory Persistent Safety Disclaimer */}
-      <p className="disclaimer" role="note">
+      <div className="disclaimer" role="note" aria-label="Safety disclaimer">
+        <span className="badge warn">PLANNING PROTOTYPE</span>{" "}
         <strong>Safety Disclaimer:</strong> {SAFETY_DISCLAIMER}
-      </p>
+      </div>
 
-      {errorBanner && (
-        <div className="error-banner" role="alert">
-          <strong>Backend Error:</strong> {errorBanner}
-          <button
-            type="button"
-            className="btn-dismiss"
-            onClick={() => setErrorBanner(null)}
-            aria-label="Dismiss error"
-          >
-            ×
-          </button>
+      {/* Clear Loading Status Indicator */}
+      {loading && (
+        <div className="loading-banner" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <span>{loadingLabel}</span>
         </div>
       )}
 
+      {/* Active Replay Mode Banner */}
+      {replayedEventId && (
+        <div className="replay-banner" role="status" aria-live="polite">
+          <div>
+            <span className="badge info">TIMELINE REPLAY</span>{" "}
+            <strong>Replaying stored event:</strong> <code>{replayedEventId}</code> (live active
+            closures are unchanged)
+          </div>
+          <div className="btn-row">
+            {timelineEvents.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="btn-chip"
+                  disabled={loading || currentReplayIdx <= 0}
+                  onClick={() => {
+                    if (currentReplayIdx > 0) {
+                      void handleReplayClosure(timelineEvents[currentReplayIdx - 1].id);
+                    }
+                  }}
+                >
+                  ◀ Prev Event
+                </button>
+                <button
+                  type="button"
+                  className="btn-chip"
+                  disabled={
+                    loading ||
+                    currentReplayIdx < 0 ||
+                    currentReplayIdx >= timelineEvents.length - 1
+                  }
+                  onClick={() => {
+                    if (currentReplayIdx >= 0 && currentReplayIdx < timelineEvents.length - 1) {
+                      void handleReplayClosure(timelineEvents[currentReplayIdx + 1].id);
+                    }
+                  }}
+                >
+                  Next Event ▶
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="btn-chip"
+              disabled={loading}
+              onClick={() => void handleExitReplay()}
+            >
+              Exit Replay
+            </button>
+          </div>
+        </div>
+      )}
+
+      {errorBanner && (
+        <div className="error-banner" role="alert">
+          <div>
+            <strong>Backend Error:</strong> {errorBanner}
+          </div>
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void loadGraphData(false)}
+              disabled={loading}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              className="btn-dismiss"
+              onClick={() => setErrorBanner(null)}
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile / Narrow-Viewport Pane Switcher */}
+      <nav className="mobile-pane-tabs" aria-label="Workspace pane selector">
+        <button
+          type="button"
+          className={mobilePane === "controls" ? "active" : ""}
+          onClick={() => setMobilePane("controls")}
+        >
+          1. Controls ({activeClosures.length} active)
+        </button>
+        <button
+          type="button"
+          className={mobilePane === "map" ? "active" : ""}
+          onClick={() => setMobilePane("map")}
+        >
+          2. Corridor Map
+        </button>
+        <button
+          type="button"
+          className={mobilePane === "why" ? "active" : ""}
+          onClick={() => setMobilePane("why")}
+        >
+          3. &ldquo;Why?&rdquo; Evidence &amp; Timeline
+        </button>
+      </nav>
+
       {/* Three-Pane Main Workspace */}
-      <div className="workspace">
+      <div className={`workspace mobile-show-${mobilePane}`}>
         {/* LEFT PANE: Chat & Event Controls */}
         <aside className="pane left-pane" aria-label="Event simulation and routing controls">
           <div className="pane-header">
@@ -586,7 +901,7 @@ export default function App() {
                       {graph?.segments.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.id} ({s.from_place_id}→{s.to_place_id}
-                          {s.on_nh29 ? ", NH29" : ""})
+                          {s.on_nh29 ? ", NH29" : ""}) [{s.provenance.confidence}]
                         </option>
                       ))}
                     </select>
@@ -604,7 +919,7 @@ export default function App() {
                       <option value="">None</option>
                       {graph?.bridges.map((b) => (
                         <option key={b.id} value={b.id}>
-                          {b.id} ({b.name || "bridge"})
+                          {b.id} ({b.name || "bridge"}) [{b.provenance.confidence}]
                         </option>
                       ))}
                     </select>
@@ -675,7 +990,16 @@ export default function App() {
                     <div key={c.id} className="subcard danger-subcard">
                       <div className="closure-item-head">
                         <strong>{c.id}</strong>
-                        <span className="badge warn">{c.data_status}</span>
+                        <div>
+                          <span className="badge warn">{c.data_status}</span>{" "}
+                          <span
+                            className={`badge ${
+                              c.confidence === "verified" ? "verified" : "unverified"
+                            }`}
+                          >
+                            {c.confidence || "unverified"}
+                          </span>
+                        </div>
                       </div>
                       <div className="closure-item-desc">{c.description}</div>
                       <div className="closure-item-meta">
@@ -712,6 +1036,22 @@ export default function App() {
                         >
                           Draft Alerts
                         </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={loading}
+                          onClick={() => void handleExportAlerts(c.id, "json")}
+                        >
+                          Export JSON
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={loading}
+                          onClick={() => void handleExportAlerts(c.id, "text")}
+                        >
+                          Export Text
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -719,9 +1059,110 @@ export default function App() {
               )}
             </section>
 
-            {/* 3. Inspect Alternate Routes */}
+            {/* 3. Stored Closure Timeline & Replay */}
             <section className="card">
-              <h3>3. Inspect Alternate Routes</h3>
+              <div className="section-title-row">
+                <h3>3. Closure Timeline &amp; Replay ({timelineEvents.length})</h3>
+                {timelineEvents.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn-chip"
+                    disabled={loading}
+                    onClick={() => {
+                      const nextIdx =
+                        currentReplayIdx >= 0 && currentReplayIdx < timelineEvents.length - 1
+                          ? currentReplayIdx + 1
+                          : 0;
+                      void handleReplayClosure(timelineEvents[nextIdx].id);
+                    }}
+                  >
+                    {replayedEventId ? "Step Next ▶" : "▶ Replay Timeline"}
+                  </button>
+                )}
+              </div>
+              {timelineEvents.length === 0 ? (
+                <p className="muted-note">
+                  No stored closure events in history yet. Simulate a closure above to populate the
+                  timeline.
+                </p>
+              ) : (
+                <div className="timeline-compact-list">
+                  {timelineEvents.map((ev) => {
+                    const isSim = ev.data_status === "simulated";
+                    const isReplaying = replayedEventId === ev.id;
+                    return (
+                      <div
+                        key={ev.id}
+                        className={`subcard timeline-item ${isReplaying ? "active-replay" : ""}`}
+                      >
+                        <div className="closure-item-head">
+                          <span>
+                            <strong>
+                              #{ev.index} {ev.id}
+                            </strong>
+                          </span>
+                          <div>
+                            <span className={`badge ${isSim ? "warn" : "info"}`}>
+                              {isSim ? "SIMULATED" : "OBSERVED"}
+                            </span>{" "}
+                            <span
+                              className={`badge ${
+                                ev.confidence === "verified" ? "verified" : "unverified"
+                              }`}
+                            >
+                              {ev.confidence || "unverified"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="closure-item-meta">
+                          <span>{ev.started_at || "undated"}</span> | status:{" "}
+                          <code>{ev.status}</code>
+                          {ev.remembered && (
+                            <>
+                              {" "}
+                              | <span className="badge ok">remembered</span>
+                            </>
+                          )}
+                        </div>
+                        <div className="closure-item-desc">{ev.description}</div>
+                        <div className="btn-row">
+                          <button
+                            type="button"
+                            className={`btn-secondary ${isReplaying ? "active" : ""}`}
+                            disabled={loading}
+                            onClick={() => void handleReplayClosure(ev.id)}
+                          >
+                            {isReplaying ? "Replaying" : "Replay Event"}
+                          </button>
+                          {!ev.remembered && (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={loading}
+                              onClick={() => void handleRememberClosure(ev.id)}
+                            >
+                              Remember
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={loading}
+                            onClick={() => void handleExportAlerts(ev.id, "text")}
+                          >
+                            Export Drafts
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* 4. Inspect & Compare Alternate Routes */}
+            <section className="card">
+              <h3>4. Inspect &amp; Compare Alternate Routes</h3>
               <div className="form-row">
                 <div className="form-col">
                   <label className="field-label" htmlFor="route-from-select">
@@ -762,13 +1203,13 @@ export default function App() {
                 disabled={loading || !routeFromId || !routeToId}
                 onClick={() => void handleCalculateReroute()}
               >
-                Inspect Alternate Route
+                Inspect &amp; Compare Alternate Route
               </button>
             </section>
 
-            {/* 4. Weak Links, Seasonal Risk & Provenance Controls */}
+            {/* 5. Weak Links, Seasonal Risk & Provenance Controls */}
             <section className="card">
-              <h3>4. Network Risk &amp; Provenance</h3>
+              <h3>5. Network Risk &amp; Data-Source Inspection</h3>
               <div className="action-grid">
                 <button
                   type="button"
@@ -798,31 +1239,32 @@ export default function App() {
                   type="button"
                   className={`btn-secondary ${showSourceSummary ? "active" : ""}`}
                   onClick={() => {
-                    setShowSourceSummary(true);
+                    setShowSourceSummary((v) => !v);
+                    setMobilePane("why");
                     appendLog({
                       role: "system",
-                      title: "Source & Confidence Summary",
+                      title: "Data-Source & Confidence Inspection",
                       detail: graph
                         ? `${graph.provenance_summary.verified} verified, ${graph.provenance_summary.unverified} unverified entities (${graph.provenance_summary.note})`
                         : "Graph not loaded yet.",
                     });
                   }}
                 >
-                  Source &amp; Confidence
+                  Inspect Data Sources
                 </button>
               </div>
             </section>
 
-            {/* 5. Compact Chat / Event Log */}
+            {/* 6. Compact Chat / Event Log */}
             <section className="card">
-              <h3>5. Agent &amp; Tool Event Log</h3>
+              <h3>6. Agent &amp; Tool Event Log</h3>
               {logEntries.length === 0 ? (
                 <p className="muted-note">
-                  Use the controls above to simulate a landslide, inspect alternate routes, or run
-                  weak-link and monsoon-risk analyses.
+                  Use the controls above to simulate a landslide, replay stored timeline closures,
+                  compare alternate routes, or export draft alert plans.
                 </p>
               ) : (
-                <div className="chat-log">
+                <div className="chat-log" role="log" aria-label="Agent and tool execution log">
                   {logEntries.map((entry) => (
                     <div key={entry.id} className={`log-item ${entry.role}`}>
                       <div className="log-head">
@@ -865,7 +1307,7 @@ export default function App() {
         </aside>
 
         {/* CENTER PANE: Interactive MapLibre Map */}
-        <main className="center-pane">
+        <main id="main-map-pane" className="center-pane" tabIndex={-1}>
           <MapView
             graph={graph}
             cutoff={cutoff}
@@ -882,6 +1324,13 @@ export default function App() {
         {/* RIGHT PANE: "Why?" Explanation, Provenance & Result Details */}
         <WhyPanel
           graph={graph}
+          timeline={timelineEvents}
+          replayedEventId={replayedEventId}
+          onReplayEvent={(id) => void handleReplayClosure(id)}
+          onExitReplay={() => void handleExitReplay()}
+          onRememberEvent={(id) => void handleRememberClosure(id)}
+          onExportAlerts={(id, fmt) => void handleExportAlerts(id, fmt)}
+          exportedTextPreview={exportedTextPreview}
           selectedFeature={selectedFeature}
           onSelectFeature={setSelectedFeature}
           cutoff={cutoff}

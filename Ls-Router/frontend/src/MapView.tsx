@@ -162,8 +162,12 @@ export default function MapView({
     const topoEdgeFeatures: GeoJSON.Feature[] = [];
     const segmentCoordsById = new Map<string, [number, number][]>();
 
+    const cutoffBlockedSegIds = new Set<string>(
+      Object.keys(cutoff?.blocked_segments ?? {}),
+    );
+
     for (const seg of graph.segments) {
-      const isBlocked = seg.status === "blocked";
+      const isBlocked = seg.status === "blocked" || cutoffBlockedSegIds.has(seg.id);
       const inRoute = routeSegIds.has(seg.id);
       const inBaseRoute = !inRoute && baselineRouteSegIds.has(seg.id);
       const weakRank = weakSegMap.get(seg.id) ?? 0;
@@ -352,7 +356,7 @@ export default function MapView({
     // Bridges
     const blockedBridgeIds = new Set<string>();
     for (const c of graph.closures) {
-      if (c.status === "active") {
+      if (c.status === "active" || cutoff?.event_id === c.id) {
         for (const bid of c.blocks_bridges) blockedBridgeIds.add(bid);
       }
     }
@@ -390,10 +394,10 @@ export default function MapView({
       });
     }
 
-    // Active closure markers positioned at blocked segment midpoints
+    // Active or replayed closure markers positioned at blocked segment midpoints
     const closureFeatures: GeoJSON.Feature[] = [];
     for (const c of graph.closures) {
-      if (c.status !== "active") continue;
+      if (c.status !== "active" && cutoff?.event_id !== c.id) continue;
       for (const sid of c.blocks_segments) {
         const coords = segmentCoordsById.get(sid);
         const mid = coords ? segmentMidpoint(coords) : null;
@@ -408,7 +412,7 @@ export default function MapView({
             feature_kind: "closure",
             id: c.id,
             segment_id: sid,
-            label: `CLOSURE: ${c.id} (${sid})`,
+            label: `${c.status === "active" ? "CLOSURE" : "REPLAY"}: ${c.id} (${sid})`,
             is_selected: selectedFeature?.kind === "closure" && selectedFeature.id === c.id,
           },
         });
@@ -890,6 +894,10 @@ export default function MapView({
               <span>Calculated alternate route</span>
             </div>
             <div className="legend-item">
+              <span className="swatch-line baseline" />
+              <span>Baseline route (for comparison)</span>
+            </div>
+            <div className="legend-item">
               <span className="swatch-line weak" />
               <span>Centrality weak link</span>
             </div>
@@ -926,6 +934,13 @@ export default function MapView({
               <span>Bridge node</span>
             </div>
           </div>
+          {graph && (
+            <div className="legend-hint">
+              <strong>Source Confidence:</strong>{" "}
+              <span className="badge verified">{graph.provenance_summary.verified} verified</span>{" "}
+              <span className="badge unverified">{graph.provenance_summary.unverified} unverified</span>
+            </div>
+          )}
           <div className="legend-hint">
             Click any road segment, settlement, bridge, hospital, or closure marker to inspect its
             provenance and calculations in the right pane.

@@ -17,12 +17,12 @@ statements and provenance in the response, and never fabricates graph facts.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Body, Depends, FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import __version__
@@ -818,7 +818,7 @@ def remember_closure_endpoint(
 @app.get(
     "/history",
     tags=["history"],
-    summary="Return stored observed and simulated closure history and bridge failure records",
+    summary="Return stored observed and simulated closure history, chronological timeline, and bridge failure records",
 )
 def get_history(
     store: FalkorStore = Depends(get_store),
@@ -827,34 +827,6 @@ def get_history(
     store.reset_log()
     snap = store.load_snapshot()
     log = store.drain_log()
-
-    observed_events = []
-    simulated_events = []
-    for e in sorted(snap.events.values(), key=lambda x: x.id):
-        is_sim = e.data_status == "simulated"
-        row = {
-            "id": e.id,
-            "description": e.description,
-            "status": e.status,
-            "data_status": e.data_status,
-            "history_label": "SIMULATED (demonstration scenario)" if is_sim else "OBSERVED (historical report)",
-            "remembered": bool(e.remembered_at),
-            "remembered_at": e.remembered_at,
-            "cause": e.cause,
-            "origin": e.origin,
-            "confidence": e.confidence,
-            "started_at": e.started_at,
-            "ended_at": e.ended_at,
-            "location_text": e.location_text,
-            "source_url": e.source_url,
-            "blocks_segments": list(e.blocks_segments),
-            "blocks_bridges": list(e.blocks_bridges),
-            "near_places": list(e.near_places),
-        }
-        if is_sim:
-            simulated_events.append(row)
-        else:
-            observed_events.append(row)
 
     bridge_failures = []
     for bid, eid, year in sorted(snap.failed_in):
@@ -876,21 +848,83 @@ def get_history(
             ),
         })
 
+    observed_events = []
+    simulated_events = []
+    all_rows = []
+    for e in sorted(snap.events.values(), key=lambda x: x.id):
+        is_sim = e.data_status == "simulated"
+        seg_details = [
+            {
+                "id": sid,
+                "name": snap.segments[sid].name,
+                "from_place_id": snap.segments[sid].from_place_id,
+                "to_place_id": snap.segments[sid].to_place_id,
+                "on_nh29": snap.segments[sid].on_nh29,
+                "confidence": snap.segments[sid].confidence,
+            }
+            for sid in e.blocks_segments
+            if sid in snap.segments
+        ]
+        br_details = [
+            {
+                "id": bid,
+                "name": snap.bridges[bid].name,
+                "confidence": snap.bridges[bid].confidence,
+            }
+            for bid in e.blocks_bridges
+            if bid in snap.bridges
+        ]
+        row = {
+            "id": e.id,
+            "description": e.description,
+            "status": e.status,
+            "data_status": e.data_status,
+            "history_label": "SIMULATED (demonstration scenario)" if is_sim else "OBSERVED (historical report)",
+            "remembered": bool(e.remembered_at),
+            "remembered_at": e.remembered_at,
+            "cause": e.cause,
+            "origin": e.origin,
+            "confidence": e.confidence,
+            "started_at": e.started_at,
+            "ended_at": e.ended_at,
+            "location_text": e.location_text,
+            "source_url": e.source_url,
+            "blocks_segments": list(e.blocks_segments),
+            "blocks_bridges": list(e.blocks_bridges),
+            "near_places": list(e.near_places),
+            "segment_details": seg_details,
+            "bridge_details": br_details,
+            "failed_bridges": [f for f in bridge_failures if f["event_id"] == e.id],
+        }
+        all_rows.append(row)
+        if is_sim:
+            simulated_events.append(row)
+        else:
+            observed_events.append(row)
+
+    # Chronological timeline ordered by started_at (undated items last, then by id)
+    timeline_sorted = sorted(
+        all_rows,
+        key=lambda r: (0 if r.get("started_at") else 1, r.get("started_at") or "", r["id"]),
+    )
+    timeline = [{**item, "index": idx} for idx, item in enumerate(timeline_sorted, 1)]
+
     warnings = [
         "Simulated closures and simulated bridge failures are demonstration data and remain strictly separated from observed history.",
         "Historical counts are evidence to review; no future road or bridge failure is predicted.",
     ]
     payload = {
+        "timeline": timeline,
         "observed_events": observed_events,
         "simulated_events": simulated_events,
         "bridge_failures": bridge_failures,
         "counts": {
-            "total_events": len(observed_events) + len(simulated_events),
+            "total_events": len(all_rows),
             "observed_events": len(observed_events),
             "simulated_events": len(simulated_events),
             "active_simulated": sum(1 for e in simulated_events if e["status"] == "active"),
             "resolved_simulated": sum(1 for e in simulated_events if e["status"] == "resolved"),
-            "remembered_events": sum(1 for e in observed_events + simulated_events if e["remembered"]),
+            "remembered_events": sum(1 for e in all_rows if e["remembered"]),
             "bridge_failures_total": len(bridge_failures),
             "bridge_failures_observed": sum(1 for f in bridge_failures if f["event_data_status"] == "observed"),
             "bridge_failures_simulated": sum(1 for f in bridge_failures if f["event_data_status"] == "simulated"),
@@ -905,3 +939,275 @@ def get_history(
         "disclaimer": SAFETY_DISCLAIMER,
     }
     return sanitize_payload(payload)
+
+
+def _format_alert_plan_text(
+    event_id: str,
+    closure_event: dict[str, Any],
+    alerts: list[dict[str, Any]],
+    disclaimer: str,
+) -> str:
+    """Format a synthetic draft alert plan as human-readable plain text with mandatory draft labels."""
+    is_sim = closure_event.get("data_status") == "simulated"
+    hist_label = "SIMULATED (demonstration scenario)" if is_sim else "OBSERVED (historical report)"
+    lines = [
+        "========================================================================",
+        "LANDSLIDE ROUTER — SYNTHETIC COMMUNITY ALERT PLAN (DRAFT ONLY — NOT SENT)",
+        "========================================================================",
+        f"Safety Disclaimer: {SAFETY_DISCLAIMER}",
+        f"Alert Plan Disclaimer: {disclaimer}",
+        f"Event ID: {event_id}",
+        f"Event Classification: {hist_label} | status={closure_event.get('status')} | data_status={closure_event.get('data_status')}",
+        f"Cause / Started At: {closure_event.get('cause') or 'unknown'} | {closure_event.get('started_at') or 'unknown'}",
+        f"Blocked Road Segments: {', '.join(closure_event.get('blocks_segments') or []) or 'none'}",
+        f"Blocked Bridges: {', '.join(closure_event.get('blocks_bridges') or []) or 'none'}",
+        f"Total Draft Alerts: {len(alerts)} (all status='draft', sent=False)",
+        "------------------------------------------------------------------------",
+    ]
+    if not alerts:
+        lines.append("No settlement (village/town) is newly cut off from Dimapur by this closure; 0 draft alerts generated.")
+    else:
+        for idx, a in enumerate(alerts, 1):
+            lines.extend([
+                f"[DRAFT #{idx}] Target: {a.get('target_name') or a.get('target_place_id')} ({a.get('target_place_id')})",
+                f"  Alert ID: {a.get('alert_id')} | Channel: {a.get('channel')} | Status: {a.get('status')} | Sent: {a.get('sent')}",
+                f"  Hospital Route Segments: {', '.join(a.get('routed_via_segments') or []) or 'none'}",
+                f"  SMS Draft Text ({a.get('length')} chars):",
+                f"    {a.get('text')}",
+                "------------------------------------------------------------------------",
+            ])
+    return "\n".join(lines) + "\n"
+
+
+@app.get(
+    "/alerts/{event_id}/export",
+    tags=["alerts"],
+    summary="Export synthetic community draft alerts for a closure event as JSON or plain text",
+)
+def export_draft_alerts(
+    event_id: str = Path(..., min_length=1, max_length=200, description="ClosureEvent ID"),
+    format: Literal["json", "text"] = Query(
+        default="json",
+        description="Export format: 'json' (structured JSON plan) or 'text' (plain-text SMS draft sheet).",
+    ),
+    replay: bool = Query(
+        default=True,
+        description="If true, evaluate stored/resolved/historical events in replay mode when generating draft alerts.",
+    ),
+    toolbox: Toolbox = Depends(get_toolbox),
+) -> Any:
+    """Export synthetic community alert drafts (`status='draft'`, `sent=False`) as JSON or plain text."""
+    cleaned_event_id = redact_sensitive_text(event_id.strip())
+    if not cleaned_event_id:
+        raise ToolInputError("'event_id' must be a non-empty string")
+
+    env = toolbox.draft_alerts(closure_event_id=cleaned_event_id, replay=replay)
+    res = env["result"]
+    alerts = res["alerts"]
+    # Enforce draft-only invariant on all exported alerts
+    for a in alerts:
+        a["status"] = "draft"
+        a["sent"] = False
+
+    text_plan = _format_alert_plan_text(
+        event_id=cleaned_event_id,
+        closure_event=res["closure_event"],
+        alerts=alerts,
+        disclaimer=res["disclaimer"],
+    )
+
+    if format == "text":
+        safe_text = redact_sensitive_text(text_plan)
+        return PlainTextResponse(
+            content=safe_text,
+            headers={
+                "Content-Disposition": f'attachment; filename="draft-alerts-{cleaned_event_id}.txt"',
+            },
+        )
+
+    payload = {
+        "event_id": cleaned_event_id,
+        "export_format": "json",
+        "all_drafts": all(a.get("status") == "draft" for a in alerts),
+        "any_sent": any(bool(a.get("sent")) for a in alerts),
+        **res,
+        "text_plan": text_plan,
+        **env,
+        "disclaimer": SAFETY_DISCLAIMER,
+    }
+    return sanitize_payload(payload)
+
+
+@app.get(
+    "/replay/{event_id}",
+    tags=["history"],
+    summary="Replay a stored historical or simulated closure event against the corridor graph without mutating active state",
+)
+@app.post(
+    "/replay/{event_id}",
+    tags=["history"],
+    summary="Replay a stored historical or simulated closure event against the corridor graph without mutating active state",
+)
+def replay_closure_endpoint(
+    event_id: str = Path(..., min_length=1, max_length=200, description="Stored ClosureEvent ID to replay"),
+    from_place: str | None = Query(
+        default=None,
+        alias="from",
+        max_length=200,
+        description="Optional origin Place ID for alternate route comparison (defaults to Dimapur reference node).",
+    ),
+    to_place: str | None = Query(
+        default=None,
+        alias="to",
+        max_length=200,
+        description="Optional destination Place ID for alternate route comparison (defaults to Kohima reference node).",
+    ),
+    include_alerts: bool = Query(
+        default=True,
+        description="If true, also generate synthetic draft alerts for settlements cut off during the replay.",
+    ),
+    toolbox: Toolbox = Depends(get_toolbox),
+) -> dict[str, Any]:
+    """Evaluate reachability, hospital access, alternate route comparison, and draft alerts for any stored event (`event_id`)."""
+    cleaned_event_id = redact_sensitive_text(event_id.strip())
+    if not cleaned_event_id:
+        raise ToolInputError("'event_id' must be a non-empty string")
+
+    cutoff_env = toolbox.find_cut_off_places(closure_event_id=cleaned_event_id, replay=True)
+    hosp_env = toolbox.find_unreachable_hospitals(closure_event_id=cleaned_event_id, replay=True)
+    cutoff_res = cutoff_env["result"]
+    hosp_res = hosp_env["result"]
+
+    snap = toolbox.store.load_snapshot()
+    ev_obj = snap.events[cleaned_event_id]
+    dimapur = snap.reference("dimapur")
+    kohima = snap.reference("kohima")
+    origin_id = (
+        redact_sensitive_text(from_place.strip())
+        if (from_place and from_place.strip())
+        else (dimapur.id if dimapur else sorted(snap.places)[0])
+    )
+    dest_id = (
+        redact_sensitive_text(to_place.strip())
+        if (to_place and to_place.strip())
+        else (kohima.id if kohima else sorted(snap.places)[-1])
+    )
+
+    reroute_env = toolbox.reroute(
+        from_place_id=origin_id,
+        to_place_id=dest_id,
+        avoid_event_id=cleaned_event_id,
+    )
+    explain_env = toolbox.explain_path(
+        from_place_id=origin_id,
+        to_place_id=dest_id,
+        avoid_event_id=cleaned_event_id,
+    )
+    reroute_res = reroute_env["result"]
+    explain_res = explain_env["result"]
+
+    alerts_env = toolbox.draft_alerts(closure_event_id=cleaned_event_id, replay=True) if include_alerts else None
+    alerts_res = alerts_env["result"] if alerts_env else None
+
+    is_sim = ev_obj.data_status == "simulated"
+    event_detail = {
+        **cutoff_res["closure_event"],
+        "confidence": ev_obj.confidence,
+        "source_url": ev_obj.source_url,
+        "history_label": "SIMULATED (demonstration scenario)" if is_sim else "OBSERVED (historical report)",
+    }
+
+    cutoff_payload = {
+        "event_id": cleaned_event_id,
+        **cutoff_res,
+        "cut_off_places": cutoff_res,
+        "hospital_reachability": hosp_res,
+        "explanation": f"{cutoff_env['explanation']} {hosp_env['explanation']}",
+        "cypher": list(cutoff_env["cypher"]) + list(hosp_env["cypher"]),
+        "params": {
+            "find_cut_off_places": cutoff_env["params"],
+            "find_unreachable_hospitals": hosp_env["params"],
+        },
+        "graph": _merge_graphs(cutoff_env["graph"], hosp_env["graph"]),
+        "warnings": _dedupe_strings(list(cutoff_env["warnings"]) + list(hosp_env["warnings"])),
+        "algorithm": {
+            "find_cut_off_places": cutoff_env["algorithm"],
+            "find_unreachable_hospitals": hosp_env["algorithm"],
+        },
+        "disclaimer": SAFETY_DISCLAIMER,
+    }
+
+    reroute_payload = {
+        **reroute_res,
+        "reroute": reroute_res,
+        "path_explanation": explain_res,
+        "explanation": f"{reroute_env['explanation']} {explain_env['explanation']}",
+        "cypher": list(reroute_env["cypher"]) + list(explain_env["cypher"]),
+        "params": {
+            "reroute": reroute_env["params"],
+            "explain_path": explain_env["params"],
+        },
+        "graph": reroute_env["graph"],
+        "warnings": _dedupe_strings(list(reroute_env["warnings"]) + list(explain_env["warnings"])),
+        "algorithm": {
+            "reroute": reroute_env["algorithm"],
+            "explain_path": explain_env["algorithm"],
+        },
+        "disclaimer": SAFETY_DISCLAIMER,
+    }
+
+    alerts_payload = (
+        {
+            "event_id": cleaned_event_id,
+            **alerts_res,
+            **alerts_env,
+            "disclaimer": SAFETY_DISCLAIMER,
+        }
+        if (alerts_env and alerts_res)
+        else None
+    )
+
+    combined_cypher = (
+        list(cutoff_payload["cypher"])
+        + list(reroute_payload["cypher"])
+        + (list(alerts_env["cypher"]) if alerts_env else [])
+    )
+    combined_warnings = _dedupe_strings(
+        list(cutoff_payload["warnings"])
+        + list(reroute_payload["warnings"])
+        + (list(alerts_env["warnings"]) if alerts_env else [])
+    )
+
+    expl = (
+        f"Timeline replay of {cleaned_event_id} ({event_detail['history_label']}, status={ev_obj.status}): "
+        f"{cutoff_env['explanation']} {hosp_env['explanation']} {reroute_env['explanation']}"
+    )
+
+    payload = {
+        "replay_mode": True,
+        "event_id": cleaned_event_id,
+        "event": event_detail,
+        "cutoff": cutoff_payload,
+        "reroute": reroute_payload,
+        "alerts": alerts_payload,
+        "explanation": expl,
+        "cypher": combined_cypher,
+        "params": {
+            "find_cut_off_places": cutoff_env["params"],
+            "find_unreachable_hospitals": hosp_env["params"],
+            "reroute": reroute_env["params"],
+            "explain_path": explain_env["params"],
+            **({"draft_alerts": alerts_env["params"]} if alerts_env else {}),
+        },
+        "warnings": combined_warnings,
+        "algorithm": {
+            "find_cut_off_places": cutoff_env["algorithm"],
+            "find_unreachable_hospitals": hosp_env["algorithm"],
+            "reroute": reroute_env["algorithm"],
+            "explain_path": explain_env["algorithm"],
+            **({"draft_alerts": alerts_env["algorithm"]} if alerts_env else {}),
+        },
+        "disclaimer": SAFETY_DISCLAIMER,
+    }
+    return sanitize_payload(payload)
+

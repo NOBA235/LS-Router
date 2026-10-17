@@ -417,6 +417,18 @@ export interface PathContribution {
   bridges_on_segment: string[];
 }
 
+export interface BaselineComparison {
+  baseline_path: { nodes: string[]; node_names: string[] } | null;
+  baseline_contributions: PathContribution[];
+  baseline_total_travel_time_min: number | null;
+  baseline_total_length_km: number | null;
+  detour_travel_time_delta_min: number | null;
+  detour_length_delta_km: number | null;
+  same_as_baseline: boolean;
+  segments_avoided_from_baseline: string[];
+  segments_added_in_detour: string[];
+}
+
 export interface RerouteResponse {
   from_place_id: string;
   to_place_id: string;
@@ -435,6 +447,7 @@ export interface RerouteResponse {
     total_travel_time_min?: number;
     total_length_km?: number | null;
     baseline_total_travel_time_min?: number | null;
+    baseline_comparison?: BaselineComparison;
     exclusions: {
       blocked_segments: Record<string, string[]>;
       excluded_invalid_weight: string[];
@@ -615,6 +628,82 @@ export interface DraftAlertsResponse {
   disclaimer: string;
 }
 
+export interface AlertPlanExportResponse extends DraftAlertsResponse {
+  export_format: "json";
+  all_drafts: boolean;
+  any_sent: boolean;
+  text_plan: string;
+}
+
+export interface TimelineEntry extends ClosureEventNode {
+  index: number;
+  segment_details?: Array<{
+    id: string;
+    name: string | null;
+    from_place_id: string;
+    to_place_id: string;
+    on_nh29: boolean;
+    confidence: string | null;
+  }>;
+  bridge_details?: Array<{
+    id: string;
+    name: string | null;
+    confidence: string | null;
+  }>;
+  failed_bridges?: Array<{
+    bridge_id: string;
+    bridge_name: string | null;
+    event_id: string;
+    year: number | null;
+    event_data_status: string | null;
+    history_label: string;
+  }>;
+}
+
+export interface HistoryResponse {
+  timeline: TimelineEntry[];
+  observed_events: TimelineEntry[];
+  simulated_events: TimelineEntry[];
+  bridge_failures: Array<{
+    bridge_id: string;
+    bridge_name: string | null;
+    event_id: string;
+    year: number | null;
+    event_data_status: string | null;
+    history_label: string;
+  }>;
+  counts: {
+    total_events: number;
+    observed_events: number;
+    simulated_events: number;
+    active_simulated: number;
+    resolved_simulated: number;
+    remembered_events: number;
+    bridge_failures_total: number;
+    bridge_failures_observed: number;
+    bridge_failures_simulated: number;
+  };
+  cypher: string[];
+  params: Record<string, unknown>;
+  warnings: string[];
+  disclaimer: string;
+}
+
+export interface ReplayResponse {
+  replay_mode: boolean;
+  event_id: string;
+  event: ClosureEventNode;
+  cutoff: CutoffResponse;
+  reroute: RerouteResponse;
+  alerts: DraftAlertsResponse | null;
+  explanation: string;
+  cypher: string[];
+  params: Record<string, unknown>;
+  warnings: string[];
+  algorithm: Record<string, unknown>;
+  disclaimer: string;
+}
+
 export interface ResolveClosureResponse {
   event_id: string;
   event: ClosureEventNode;
@@ -672,4 +761,5 @@ export interface ChatLogEntry {
   };
   eventId?: string;
 }
+
 

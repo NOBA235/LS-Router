@@ -1,8 +1,11 @@
 import type {
+  AlertPlanExportResponse,
   ClosureResponse,
   CutoffResponse,
   DraftAlertsResponse,
   GraphResponse,
+  HistoryResponse,
+  ReplayResponse,
   RerouteResponse,
   ResolveClosureResponse,
   SeasonalRiskResponse,
@@ -148,4 +151,53 @@ export function postRememberClosure(
     method: "POST",
   });
 }
+
+export function fetchHistory(signal?: AbortSignal): Promise<HistoryResponse> {
+  return requestJson<HistoryResponse>("/history", { method: "GET", signal });
+}
+
+export function fetchReplay(
+  eventId: string,
+  fromPlaceId?: string | null,
+  toPlaceId?: string | null,
+  includeAlerts = true,
+): Promise<ReplayResponse> {
+  const qs = new URLSearchParams({ include_alerts: String(includeAlerts) });
+  if (fromPlaceId && fromPlaceId.trim()) {
+    qs.set("from", fromPlaceId.trim());
+  }
+  if (toPlaceId && toPlaceId.trim()) {
+    qs.set("to", toPlaceId.trim());
+  }
+  return requestJson<ReplayResponse>(`/replay/${encodeURIComponent(eventId)}?${qs.toString()}`, {
+    method: "GET",
+  });
+}
+
+export function fetchAlertPlanExportJson(
+  eventId: string,
+  replay = true,
+): Promise<AlertPlanExportResponse> {
+  const qs = new URLSearchParams({ format: "json", replay: String(replay) });
+  return requestJson<AlertPlanExportResponse>(
+    `/alerts/${encodeURIComponent(eventId)}/export?${qs.toString()}`,
+    { method: "GET" },
+  );
+}
+
+export async function fetchAlertPlanExportText(
+  eventId: string,
+  replay = true,
+): Promise<string> {
+  const qs = new URLSearchParams({ format: "text", replay: String(replay) });
+  const res = await fetch(
+    `${API_BASE}/alerts/${encodeURIComponent(eventId)}/export?${qs.toString()}`,
+    { method: "GET" },
+  );
+  if (!res.ok) {
+    throw new ApiError(res.status, `http_${res.status}`, `Failed to export text alerts (${res.status})`);
+  }
+  return res.text();
+}
+
 
