@@ -156,6 +156,11 @@ class ClosureRequest(BaseModel):
         default=False,
         description="If true and the closure is applied, also mark the simulated event as remembered in history.",
     )
+    started_at: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Optional ISO-8601 start date/time for simulated scenario (e.g. '2026-07-15T12:00:00Z' or '2026-07-15').",
+    )
 
     @model_validator(mode="after")
     def _validate_and_clean(self) -> ClosureRequest:
@@ -170,7 +175,7 @@ class ClosureRequest(BaseModel):
             if not (math.isfinite(self.lat) and math.isfinite(self.lon)):
                 raise ValueError("'lat' and 'lon' must be finite numbers")
 
-        for attr in ("target_segment_id", "target_bridge_id", "cause"):
+        for attr in ("target_segment_id", "target_bridge_id", "cause", "started_at"):
             val = getattr(self, attr)
             if val is not None:
                 cleaned = redact_sensitive_text(val.strip())
@@ -441,6 +446,7 @@ def create_closure(
         description=req.description,
         cause=cause,
         bridge_id=bridge_id,
+        started_at=req.started_at,
     )
     closure_result = closure_env["result"]
     event_id = closure_result["event"]["id"]
@@ -779,6 +785,123 @@ def resolve_closure_endpoint(
             **({"remember_closure": remember_env["algorithm"]} if remember_env else {}),
             "audit_closure": audit_env["algorithm"],
         },
+        "disclaimer": SAFETY_DISCLAIMER,
+    }
+    return sanitize_payload(payload)
+
+
+@app.post(
+    "/remember/{event_id}",
+    tags=["history"],
+    summary="Persist a closure event in historical memory and idempotently record bridge failure links",
+)
+def remember_closure_endpoint(
+    event_id: str = Path(..., min_length=1, max_length=200, description="ClosureEvent ID to remember"),
+    toolbox: Toolbox = Depends(get_toolbox),
+) -> dict[str, Any]:
+    """Mark `event_id` as remembered and record `(:Bridge)-[:FAILED_IN]->(:ClosureEvent)` where supported."""
+    cleaned_event_id = redact_sensitive_text(event_id.strip())
+    if not cleaned_event_id:
+        raise ToolInputError("'event_id' must be a non-empty string")
+
+    env = toolbox.remember_closure(event_id=cleaned_event_id)
+    res = env["result"]
+    payload = {
+        "event_id": cleaned_event_id,
+        **res,
+        **env,
+        "disclaimer": SAFETY_DISCLAIMER,
+    }
+    return sanitize_payload(payload)
+
+
+@app.get(
+    "/history",
+    tags=["history"],
+    summary="Return stored observed and simulated closure history and bridge failure records",
+)
+def get_history(
+    store: FalkorStore = Depends(get_store),
+) -> dict[str, Any]:
+    """Read stored ClosureEvent nodes and FAILED_IN bridge failure links, visibly separating observed from simulated history."""
+    store.reset_log()
+    snap = store.load_snapshot()
+    log = store.drain_log()
+
+    observed_events = []
+    simulated_events = []
+    for e in sorted(snap.events.values(), key=lambda x: x.id):
+        is_sim = e.data_status == "simulated"
+        row = {
+            "id": e.id,
+            "description": e.description,
+            "status": e.status,
+            "data_status": e.data_status,
+            "history_label": "SIMULATED (demonstration scenario)" if is_sim else "OBSERVED (historical report)",
+            "remembered": bool(e.remembered_at),
+            "remembered_at": e.remembered_at,
+            "cause": e.cause,
+            "origin": e.origin,
+            "confidence": e.confidence,
+            "started_at": e.started_at,
+            "ended_at": e.ended_at,
+            "location_text": e.location_text,
+            "source_url": e.source_url,
+            "blocks_segments": list(e.blocks_segments),
+            "blocks_bridges": list(e.blocks_bridges),
+            "near_places": list(e.near_places),
+        }
+        if is_sim:
+            simulated_events.append(row)
+        else:
+            observed_events.append(row)
+
+    bridge_failures = []
+    for bid, eid, year in sorted(snap.failed_in):
+        ev = snap.events.get(eid)
+        br = snap.bridges.get(bid)
+        ds = ev.data_status if ev else None
+        bridge_failures.append({
+            "bridge_id": bid,
+            "bridge_name": br.name if br else None,
+            "event_id": eid,
+            "year": year,
+            "event_data_status": ds,
+            "history_label": (
+                "SIMULATED (demonstration scenario)"
+                if ds == "simulated"
+                else "OBSERVED (historical report)"
+                if ds == "observed"
+                else "UNKNOWN"
+            ),
+        })
+
+    warnings = [
+        "Simulated closures and simulated bridge failures are demonstration data and remain strictly separated from observed history.",
+        "Historical counts are evidence to review; no future road or bridge failure is predicted.",
+    ]
+    payload = {
+        "observed_events": observed_events,
+        "simulated_events": simulated_events,
+        "bridge_failures": bridge_failures,
+        "counts": {
+            "total_events": len(observed_events) + len(simulated_events),
+            "observed_events": len(observed_events),
+            "simulated_events": len(simulated_events),
+            "active_simulated": sum(1 for e in simulated_events if e["status"] == "active"),
+            "resolved_simulated": sum(1 for e in simulated_events if e["status"] == "resolved"),
+            "remembered_events": sum(1 for e in observed_events + simulated_events if e["remembered"]),
+            "bridge_failures_total": len(bridge_failures),
+            "bridge_failures_observed": sum(1 for f in bridge_failures if f["event_data_status"] == "observed"),
+            "bridge_failures_simulated": sum(1 for f in bridge_failures if f["event_data_status"] == "simulated"),
+        },
+        "cypher": [q["query"] for q in log],
+        "params": {
+            "inputs": {},
+            "query_names": [q["name"] for q in log],
+            "queries": [q["params"] for q in log],
+        },
+        "warnings": warnings,
         "disclaimer": SAFETY_DISCLAIMER,
     }
     return sanitize_payload(payload)

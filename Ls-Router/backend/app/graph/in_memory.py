@@ -5,6 +5,9 @@ Every tool still goes through `FalkorStore` and executes the same Cypher strings
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from . import queries as Q
 
 
@@ -14,9 +17,10 @@ class _Result:
 
 
 class InMemoryGraph:
-    def __init__(self, ds: dict, procedures=()):
+    def __init__(self, ds: dict, procedures=(), history_path: str | Path | None = None):
         self.log: list = []
         self.procedures = list(procedures)
+        self.history_path: Path | None = Path(history_path).expanduser().resolve() if history_path else None
         self.corridor = ds["corridor"]["id"]
         self.no_corridor: set = set()
         self.places = {p["id"]: dict(p) for p in ds["places"]}
@@ -34,7 +38,11 @@ class InMemoryGraph:
         self.affects = {(r["season_id"], r["segment_id"]) for r in ds["season_affects"]}
         self.dataset = dict(ds["datasets"][0]) if ds.get("datasets") else {}
         self.alerts, self.alert_targets, self.alert_routes = {}, {}, set()
+        if self.history_path is not None and self.history_path.exists():
+            self.load_history_file(self.history_path)
         self.handlers = {
+            "RETURN 1": lambda _: [[1]],
+            "RETURN 1 AS ok": lambda _: [[1]],
             Q.Q_PLACES: self._places,
             Q.Q_SEGMENTS: self._segments,
             Q.Q_CONNECTIONS: self._connections,
@@ -61,6 +69,65 @@ class InMemoryGraph:
             Q.W_CLEAR_ALERT_ROUTES: self._clear_routes,
             Q.W_LINK_ALERT_ROUTE: self._link_route,
         }
+
+    def export_history_state(self) -> dict:
+        """Export all mutable closure, bridge-failure, and alert history state as a JSON-serializable dict."""
+        return {
+            "events": [dict(e) for _, e in sorted(self.events.items())],
+            "blocks": [[e, t, k] for e, t, k in sorted(self.blocks)],
+            "near": [[e, p] for e, p in sorted(self.near)],
+            "failed": [[b, e, y] for (b, e), y in sorted(self.failed.items())],
+            "alerts": [dict(a) for _, a in sorted(self.alerts.items())],
+            "alert_targets": dict(sorted(self.alert_targets.items())),
+            "alert_routes": [[a, s] for a, s in sorted(self.alert_routes)],
+        }
+
+    def load_history_state(self, state: dict) -> None:
+        """Restore persisted closure events, BLOCKS/FAILED_IN links, and draft alerts into this graph."""
+        if not isinstance(state, dict):
+            return
+        for e in state.get("events", []):
+            if isinstance(e, dict) and e.get("id"):
+                self.events[e["id"]] = dict(e)
+        for row in state.get("blocks", []):
+            if isinstance(row, (list, tuple)) and len(row) == 3:
+                self.blocks.add((str(row[0]), str(row[1]), str(row[2])))
+        for row in state.get("near", []):
+            if isinstance(row, (list, tuple)) and len(row) == 2:
+                self.near.add((str(row[0]), str(row[1])))
+        for row in state.get("failed", []):
+            if isinstance(row, (list, tuple)) and len(row) == 3:
+                self.failed[(str(row[0]), str(row[1]))] = row[2]
+        for a in state.get("alerts", []):
+            if isinstance(a, dict) and a.get("id"):
+                self.alerts[a["id"]] = dict(a)
+        for k, v in (state.get("alert_targets") or {}).items():
+            self.alert_targets[str(k)] = str(v)
+        for row in state.get("alert_routes", []):
+            if isinstance(row, (list, tuple)) and len(row) == 2:
+                self.alert_routes.add((str(row[0]), str(row[1])))
+
+    def save_history_file(self, path: str | Path | None = None) -> Path | None:
+        target = Path(path).expanduser().resolve() if path else self.history_path
+        if target is None:
+            return None
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp.write_text(json.dumps(self.export_history_state(), indent=2, sort_keys=True), encoding="utf-8")
+        tmp.replace(target)
+        return target
+
+    def load_history_file(self, path: str | Path | None = None) -> bool:
+        target = Path(path).expanduser().resolve() if path else self.history_path
+        if target is None or not target.exists():
+            return False
+        raw = json.loads(target.read_text(encoding="utf-8"))
+        self.load_history_state(raw)
+        return True
+
+    def _persist_if_configured(self) -> None:
+        if self.history_path is not None:
+            self.save_history_file(self.history_path)
 
     def query(self, q: str, params: dict | None = None) -> _Result:
         self.log.append((q, dict(params or {})))
@@ -177,12 +244,14 @@ class InMemoryGraph:
         self.blocks.add((p["event_id"], p["segment_id"], "seg"))
         if "bridge_id" in p:
             self.blocks.add((p["event_id"], p["bridge_id"], "bridge"))
+        self._persist_if_configured()
         return [[p["event_id"]]]
 
     def _resolve(self, p):
         e = self.events.get(p["event_id"])
         if e and e.get("status") == "active" and e.get("data_status") == "simulated":
             e["status"], e["ended_at"] = "resolved", p["now"]
+            self._persist_if_configured()
             return [[e["id"]]]
         return []
 
@@ -192,11 +261,13 @@ class InMemoryGraph:
             return []
         e["remembered"] = True
         e["remembered_at"] = e.get("remembered_at") or p["now"]
+        self._persist_if_configured()
         return [[e["remembered_at"]]]
 
     def _record_failure(self, p):
         if p["bridge_id"] in self.bridges and p["event_id"] in self.events:
             self.failed[(p["bridge_id"], p["event_id"])] = p["year"]
+            self._persist_if_configured()
             return [[p["bridge_id"]]]
         return []
 
@@ -216,15 +287,18 @@ class InMemoryGraph:
         })
         a.setdefault("created_at", p["now"])
         self.alert_targets[p["alert_id"]] = p["place_id"]
+        self._persist_if_configured()
         return [[p["alert_id"]]]
 
     def _clear_routes(self, p):
         self.alert_routes = {(a, s) for a, s in self.alert_routes if a != p["alert_id"]}
+        self._persist_if_configured()
         return []
 
     def _link_route(self, p):
         if p["alert_id"] in self.alerts and p["segment_id"] in self.segments:
             self.alert_routes.add((p["alert_id"], p["segment_id"]))
+            self._persist_if_configured()
             return [[p["segment_id"]]]
         return []
 

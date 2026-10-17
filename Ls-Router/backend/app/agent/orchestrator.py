@@ -31,8 +31,9 @@ SYSTEM_PROMPT = (
     "unless the graph tools support that conclusion. Every graph-dependent claim must include "
     "its supporting path, calculation, or result. If the network data is incomplete, explicitly "
     "disclose the uncertainty. Never invent geographic features, road closures, routes, travel times, "
-    "hospital capabilities, or risk probabilities. You provide planning assistance only and do not "
-    "dispatch emergency services."
+    "hospital capabilities, or risk probabilities. Never claim that a bridge or road will fail in a "
+    "future month; use language such as 'elevated modeled risk' or 'historical pattern warrants review.' "
+    "You provide planning assistance only and do not dispatch emergency services."
 )
 
 SAFETY_DISCLAIMER = (
@@ -180,6 +181,45 @@ class LandslideAgent:
             },
         })
 
+    def _record_seasonal_claims(self, claims: list[dict], s_env: dict) -> None:
+        seasonal_res = s_env["result"]
+        self._make_claim(
+            claims,
+            "seasonal_risk",
+            s_env["explanation"],
+            s_env,
+            {
+                "month": seasonal_res["month"],
+                "seasons": seasonal_res["seasons"],
+                "ranking_method": seasonal_res.get("ranking_method"),
+                "ranked": seasonal_res["ranked"],
+            },
+            extra_sources=seasonal_res["ranked"],
+        )
+        for item in seasonal_res.get("ranked", []):
+            self._make_claim(
+                claims,
+                "seasonal_risk_evidence",
+                (
+                    f"Rank #{item['rank']} {item.get('evidence_summary') or item.get('advisory', '')}"
+                ),
+                s_env,
+                {
+                    "rank": item["rank"],
+                    "kind": item["kind"],
+                    "id": item["id"],
+                    "name": item.get("name"),
+                    "monsoon_risk": item.get("monsoon_risk"),
+                    "counts": item.get("counts"),
+                    "scoring_breakdown": item.get("scoring_breakdown"),
+                    "observed_in_season": item.get("observed_in_season", []),
+                    "simulated_in_season": item.get("simulated_in_season", []),
+                    "bridge_failures_in_season": item.get("bridge_failures_in_season", []),
+                    "advisory": item.get("advisory"),
+                },
+                extra_sources=[item],
+            )
+
     # ------------------------------------------------------------------ main entry
     def run(
         self,
@@ -193,6 +233,8 @@ class LandslideAgent:
         top_k: int = 5,
         hospital_threshold_min: float | None = None,
         max_candidates: int = 5,
+        started_at: str | None = None,
+        remember_in_history: bool = False,
     ) -> dict:
         """Run the agent on a natural-language event or query and return a structured, provenance-backed report."""
         parsed = parse_event(prompt, lat=lat, lon=lon)
@@ -247,6 +289,8 @@ class LandslideAgent:
             hospital_threshold_min=hospital_threshold_min,
             max_candidates=max_candidates,
             llm_notes=llm_notes,
+            started_at=started_at,
+            remember_in_history=remember_in_history,
         )
 
     # ------------------------------------------------------------------ primary 11-step closure workflow
@@ -266,6 +310,8 @@ class LandslideAgent:
         hospital_threshold_min: float | None,
         max_candidates: int,
         llm_notes: list[str],
+        started_at: str | None = None,
+        remember_in_history: bool = False,
     ) -> dict:
         # Steps 1-3: Parse & resolve location against corridor data
         res_env = self._call(
@@ -346,6 +392,7 @@ class LandslideAgent:
             description=prompt,
             cause=parsed.cause,
             bridge_id=br_id,
+            started_at=started_at,
         )
         closure_res = closure_env["result"]
         event_id = closure_res["event"]["id"]
@@ -363,6 +410,16 @@ class LandslideAgent:
             },
             extra_sources=[closure_res["target_segment"]],
         )
+        remembered_res = None
+        if remember_in_history:
+            rem_env = self._call(
+                trace,
+                "remember_closure",
+                f"Persist simulated closure {event_id} in historical memory.",
+                event_id=event_id,
+            )
+            remembered_res = rem_env["result"]
+            self._make_claim(claims, "historical_memory", rem_env["explanation"], rem_env, remembered_res)
 
         # Step 6: Calculate affected settlements
         cutoff_env = self._call(
@@ -546,18 +603,7 @@ class LandslideAgent:
                 month=month,
             )
             seasonal_res = s_env["result"]
-            self._make_claim(
-                claims,
-                "seasonal_risk",
-                s_env["explanation"],
-                s_env,
-                {
-                    "month": seasonal_res["month"],
-                    "seasons": seasonal_res["seasons"],
-                    "ranked": seasonal_res["ranked"],
-                },
-                extra_sources=seasonal_res["ranked"],
-            )
+            self._record_seasonal_claims(claims, s_env)
 
         # Step 10: Draft community alerts
         alerts_env = self._call(
@@ -601,6 +647,7 @@ class LandslideAgent:
             weak_links=weak_res,
             seasonal_risk=seasonal_res,
             draft_alerts=alerts_res,
+            remembered_closure=remembered_res,
             llm_notes=llm_notes,
         )
 
@@ -679,14 +726,7 @@ class LandslideAgent:
 
     def _run_seasonal_risk_only(self, prompt: str, parsed, trace: list[dict], claims: list[dict], *, month: int | str) -> dict:
         s_env = self._call(trace, "seasonal_risk", f"Evaluate seasonal monsoon risk for month={month!r}.", month=month)
-        self._make_claim(
-            claims,
-            "seasonal_risk",
-            s_env["explanation"],
-            s_env,
-            s_env["result"],
-            extra_sources=s_env["result"]["ranked"],
-        )
+        self._record_seasonal_claims(claims, s_env)
         return self._assemble_report(
             status="completed",
             prompt=prompt,
@@ -1209,6 +1249,11 @@ class LandslideAgent:
                 f"- **Applicable segments**: {sr.get('applicable_segments', 0)} | "
                 f"**Ranked items with risk label or in-season history**: {len(sr.get('ranked', []))}"
             )
+            if sr.get("ranking_method"):
+                lines.append(f"- **Scoring rule**: {sr['ranking_method']}")
+            for item in sr.get("ranked", [])[:5]:
+                ev_sum = item.get("evidence_summary") or item.get("advisory") or ""
+                lines.append(f"  - **Rank #{item['rank']} (`{item['kind']}` `{item['id']}`)**: {ev_sum}")
 
         da = report.get("draft_alerts")
         if da:

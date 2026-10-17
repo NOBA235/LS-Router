@@ -10,3 +10,4 @@ dist/
 *.log
 Thumbs.db
 .DS_Store
+data/cache/runtime_history.json*

@@ -34,6 +34,7 @@ export interface BridgeFailureRecord {
   event_id: string;
   year: number | null;
   event_data_status: string | null;
+  history_label?: string;
 }
 
 export interface BridgeNode {
@@ -84,6 +85,8 @@ export interface ClosureEventNode {
   description: string | null;
   status: string;
   data_status: string;
+  history_label?: string;
+  remembered?: boolean;
   cause: string | null;
   origin: string | null;
   confidence: string | null;
@@ -517,6 +520,9 @@ export interface SeasonalEventRecord {
   confidence: string | null;
   source_url: string | null;
   data_status: string;
+  remembered?: boolean;
+  remembered_at?: string | null;
+  history_label?: string;
 }
 
 export interface SeasonalRankedItem {
@@ -527,9 +533,27 @@ export interface SeasonalRankedItem {
   monsoon_risk: string | null;
   observed_in_season: SeasonalEventRecord[];
   simulated_in_season: SeasonalEventRecord[];
+  bridge_failures_in_season?: Array<{
+    bridge_id: string;
+    event_id: string;
+    year: number | null;
+    data_status: string | null;
+    history_label: string;
+  }>;
   events_outside_season: string[];
   undated_events: string[];
   counts: { observed: number; simulated: number };
+  scoring_breakdown?: {
+    risk_tier: number;
+    monsoon_risk_label: string;
+    observed_in_season: number;
+    simulated_in_season: number;
+    remembered_in_season: number;
+    bridge_failures_in_season: number;
+    composite_score: number;
+  };
+  advisory?: string;
+  evidence_summary?: string;
   carries_bridges?: string[];
   segments?: string[];
   confidence: string | null;
@@ -648,3 +672,4 @@ export interface ChatLogEntry {
   };
   eventId?: string;
 }
+

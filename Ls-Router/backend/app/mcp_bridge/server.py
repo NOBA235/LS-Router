@@ -236,15 +236,19 @@ def build_mcp_server(
         description: str,
         cause: str = "landslide",
         bridge_id: str | None = None,
+        started_at: str | None = None,
     ) -> str:
         raw = {"segment_id": segment_id, "description": description, "cause": cause, "bridge_id": bridge_id}
+        if started_at is not None:
+            raw["started_at"] = started_at
 
         def _call() -> dict[str, Any]:
             seg = _require_non_empty_str(segment_id, "segment_id", max_len=128)
             desc = _require_non_empty_str(description, "description")
             cause_s = _require_non_empty_str(cause, "cause", max_len=64)
             br = _validate_optional_str(bridge_id, "bridge_id", max_len=128)
-            return toolbox.apply_closure(segment_id=seg, description=desc, cause=cause_s, bridge_id=br)
+            st = _validate_optional_str(started_at, "started_at", max_len=64)
+            return toolbox.apply_closure(segment_id=seg, description=desc, cause=cause_s, bridge_id=br, started_at=st)
 
         return _execute("apply_closure", raw, _call)
 

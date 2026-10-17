@@ -84,7 +84,12 @@ def build_graph_view(snap: Snapshot, details: dict, include_geometry: bool = Tru
     for b in sorted(snap.bridges.values(), key=lambda x: x.id):
         d = d_bridges.get(b.id, {})
         history = [{"event_id": eid, "year": year,
-                    "event_data_status": events[eid].data_status if eid in events else None}
+                    "event_data_status": events[eid].data_status if eid in events else None,
+                    "history_label": ("SIMULATED (demonstration scenario)"
+                                      if eid in events and events[eid].data_status == "simulated"
+                                      else "OBSERVED (historical report)"
+                                      if eid in events and events[eid].data_status == "observed"
+                                      else "UNKNOWN")}
                    for bid, eid, year in snap.failed_in if bid == b.id]
         bridges.append({"id": b.id, "name": b.name, "road_name": b.road_name, "lat": b.lat, "lon": b.lon,
                         "monsoon_risk": b.monsoon_risk, "segment_ids": list(b.segment_ids),
@@ -114,6 +119,9 @@ def build_graph_view(snap: Snapshot, details: dict, include_geometry: bool = Tru
                         f"{bad_geometry[:5]}")
 
     closures = [{"id": e.id, "description": e.description, "status": e.status, "data_status": e.data_status,
+                 "history_label": ("SIMULATED (demonstration scenario)" if e.data_status == "simulated"
+                                   else "OBSERVED (historical report)"),
+                 "remembered": bool(e.remembered_at),
                  "cause": e.cause, "origin": e.origin, "confidence": e.confidence, "started_at": e.started_at,
                  "ended_at": e.ended_at, "remembered_at": e.remembered_at, "location_text": e.location_text,
                  "source_url": e.source_url, "blocks_segments": list(e.blocks_segments),

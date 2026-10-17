@@ -45,6 +45,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "description": {"type": "string", "description": "Description of the simulated closure."},
                 "cause": {"type": "string", "default": "landslide"},
                 "bridge_id": {"type": ["string", "null"], "description": "Optional Bridge ID ON the segment."},
+                "started_at": {"type": ["string", "null"], "description": "Optional ISO-8601 start date/time (e.g. '2026-07-15T12:00:00Z')."},
             },
             "required": ["segment_id", "description"],
         },

@@ -4,7 +4,7 @@ Graph-backed landslide-routing prototype for the Dimapur–Kohima corridor (NH29
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
-**Current state: Phase 6 (Three-Pane Interactive Frontend).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), the Phase 5 FastAPI HTTP backend (`backend/app/main.py`), and the Phase 6 three-pane MapLibre + React frontend (`frontend/src/`).
+**Current state: Phase 7 (Historical Memory and Seasonal Risk).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), the Phase 5 FastAPI HTTP backend (`backend/app/main.py`), the Phase 6 three-pane MapLibre + React frontend (`frontend/src/`), and the Phase 7 persistent closure history, idempotency protection, and seasonal risk scoring (`docs/PHASE7.md`).
 
 ## Prerequisites (Windows)
 
@@ -175,6 +175,18 @@ npm run dev
 ```
 
 Open http://localhost:5173 to use the three-pane workspace (left controls & incident log, center MapLibre corridor graph with legend and topology overlay, right "Why?" provenance and Cypher inspector).
+
+## Phase 7: Historical memory and seasonal risk
+
+Design, persistent history storage, idempotency rules, and seasonal risk scoring formula: [docs/PHASE7.md](docs/PHASE7.md).
+
+Example endpoints for closure archiving and historical audit:
+
+```bat
+curl -X POST http://127.0.0.1:8000/remember/<event_id>
+curl http://127.0.0.1:8000/history
+curl http://127.0.0.1:8000/seasonal-risk?month=july
+```
 
 ## Stop
 

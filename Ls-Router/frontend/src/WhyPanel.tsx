@@ -324,9 +324,20 @@ export default function WhyPanel({
           {seasonalSeg && (
             <div className="subcard warn-subcard">
               <strong>Seasonal Risk Rank #{seasonalSeg.rank}:</strong> risk label{" "}
-              <code>{seasonalSeg.monsoon_risk ?? "none"}</code>, observed in-season events:{" "}
+              <code>{seasonalSeg.monsoon_risk ?? "unlabelled"}</code>, observed in-season events:{" "}
               <strong>{seasonalSeg.counts.observed}</strong>, simulated in-season events:{" "}
-              <strong>{seasonalSeg.counts.simulated}</strong>.
+              <strong>{seasonalSeg.counts.simulated}</strong>
+              {seasonalSeg.scoring_breakdown && (
+                <span>
+                  {" "}
+                  (composite score: <code>{seasonalSeg.scoring_breakdown.composite_score}</code>)
+                </span>
+              )}
+              .
+              {seasonalSeg.advisory && <div>{seasonalSeg.advisory}</div>}
+              {seasonalSeg.evidence_summary && (
+                <div className="muted-note">{seasonalSeg.evidence_summary}</div>
+              )}
             </div>
           )}
           <h4>Provenance</h4>
@@ -459,7 +470,10 @@ export default function WhyPanel({
               <dd>
                 {b.failure_history.length > 0
                   ? b.failure_history
-                      .map((f) => `${f.event_id} (${f.year ?? "?"}, ${f.event_data_status})`)
+                      .map(
+                        (f) =>
+                          `${f.event_id} (${f.year ?? "?"}, ${f.history_label ?? f.event_data_status})`,
+                      )
                       .join("; ")
                   : "None recorded"}
               </dd>
@@ -477,6 +491,10 @@ export default function WhyPanel({
               <strong>Seasonal Risk Rank #{seasonalBr.rank}:</strong> observed in-season:{" "}
               <strong>{seasonalBr.counts.observed}</strong>, simulated in-season:{" "}
               <strong>{seasonalBr.counts.simulated}</strong>.
+              {seasonalBr.advisory && <div>{seasonalBr.advisory}</div>}
+              {seasonalBr.evidence_summary && (
+                <div className="muted-note">{seasonalBr.evidence_summary}</div>
+              )}
             </div>
           )}
           <h4>Provenance</h4>
@@ -494,9 +512,22 @@ export default function WhyPanel({
             <span className="feature-type">ClosureEvent</span>
             <strong>{c.id}</strong>
             <StatusBadge value={c.status} />
-            <StatusBadge value={c.data_status} />
+            <StatusBadge value={c.history_label ?? c.data_status} />
           </div>
           <dl className="kv-list">
+            <div>
+              <dt>History Classification</dt>
+              <dd>
+                <StatusBadge value={c.data_status} />{" "}
+                <span>{c.history_label ?? c.data_status}</span>
+                {c.remembered_at && (
+                  <span>
+                    {" "}
+                    | remembered at <code>{c.remembered_at}</code>
+                  </span>
+                )}
+              </dd>
+            </div>
             <div>
               <dt>Description</dt>
               <dd>{c.description ?? "none"}</dd>
@@ -1093,55 +1124,81 @@ export default function WhyPanel({
                 {seasonalRisk.month}.
               </p>
             ) : (
-              <div className="table-wrapper scroller">
-                <table
-                  className="data-table"
-                  style={
-                    {
-                      "--label-1": '"Rank / Item"',
-                      "--label-2": '"Risk Label"',
-                      "--label-3": '"Observed Events"',
-                      "--label-4": '"Simulated Events"',
-                    } as React.CSSProperties
-                  }
-                >
-                  <thead>
-                    <tr>
-                      <th>Rank / Item</th>
-                      <th>Risk Label</th>
-                      <th>Observed Events</th>
-                      <th>Simulated Events</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {seasonalRisk.ranked.map((r) => (
-                      <tr key={`${r.kind}-${r.id}`}>
-                        <th>
-                          #{r.rank}{" "}
-                          <button
-                            type="button"
-                            className="inline-link"
-                            onClick={() =>
-                              onSelectFeature({
-                                kind: r.kind === "bridge" ? "bridge" : "segment",
-                                id: r.id,
-                              })
-                            }
-                          >
-                            {r.id}
-                          </button>{" "}
-                          ({r.kind})
-                        </th>
-                        <td>
-                          <StatusBadge value={r.monsoon_risk ?? "unlabelled"} />
-                        </td>
-                        <td>{r.counts.observed}</td>
-                        <td>{r.counts.simulated}</td>
+              <>
+                <div className="table-wrapper scroller">
+                  <table
+                    className="data-table"
+                    style={
+                      {
+                        "--label-1": '"Rank / Item"',
+                        "--label-2": '"Risk / Score"',
+                        "--label-3": '"Observed Events"',
+                        "--label-4": '"Simulated Events"',
+                      } as React.CSSProperties
+                    }
+                  >
+                    <thead>
+                      <tr>
+                        <th>Rank / Item</th>
+                        <th>Risk / Score</th>
+                        <th>Observed Events</th>
+                        <th>Simulated Events</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {seasonalRisk.ranked.map((r) => (
+                        <tr key={`${r.kind}-${r.id}`}>
+                          <th>
+                            #{r.rank}{" "}
+                            <button
+                              type="button"
+                              className="inline-link"
+                              onClick={() =>
+                                onSelectFeature({
+                                  kind: r.kind === "bridge" ? "bridge" : "segment",
+                                  id: r.id,
+                                })
+                              }
+                            >
+                              {r.id}
+                            </button>{" "}
+                            ({r.kind})
+                          </th>
+                          <td>
+                            <StatusBadge value={r.monsoon_risk ?? "unlabelled"} />
+                            {r.scoring_breakdown && (
+                              <span className="muted-note">
+                                {" "}
+                                ({r.scoring_breakdown.composite_score} pts)
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span className="badge info">{r.counts.observed} OBSERVED</span>
+                          </td>
+                          <td>
+                            <span className="badge warn">{r.counts.simulated} SIMULATED</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <h4>Seasonal Advisory &amp; Evidence Breakdown</h4>
+                {seasonalRisk.ranked.slice(0, 5).map((r) => (
+                  <div key={`ev-${r.kind}-${r.id}`} className="subcard info-subcard">
+                    <div>
+                      <strong>
+                        Rank #{r.rank} {r.name || r.id} (<code>{r.id}</code>)
+                      </strong>{" "}
+                      — {r.advisory || "Elevated modeled risk — historical pattern warrants review."}
+                    </div>
+                    {r.evidence_summary && (
+                      <div className="muted-note">{r.evidence_summary}</div>
+                    )}
+                  </div>
+                ))}
+              </>
             )}
           </section>
         )}
@@ -1213,3 +1270,4 @@ export default function WhyPanel({
     </aside>
   );
 }
+

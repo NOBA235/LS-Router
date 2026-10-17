@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     ]
     landslide_dataset_path: str | None = None
     landslide_use_fixture: bool = False
+    landslide_history_file: str | None = None
 
 
 @lru_cache

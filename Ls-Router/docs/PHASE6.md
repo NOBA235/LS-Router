@@ -68,3 +68,4 @@ npm run dev
 ```
 
 Open `http://localhost:5173` in a browser to verify the three-pane UI.
+

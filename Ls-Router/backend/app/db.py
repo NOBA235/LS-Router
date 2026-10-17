@@ -21,22 +21,26 @@ def reset_offline_graph_cache() -> None:
 
 
 def _get_offline_graph(settings: Settings) -> InMemoryGraph:
+    hist_path = settings.landslide_history_file
     if settings.landslide_use_fixture:
-        key = "__fixture__"
+        key = f"__fixture__::{hist_path or ''}"
         if key not in _OFFLINE_GRAPH_CACHE:
             from .agent.cli import build_synthetic_fixture_dataset
 
-            _OFFLINE_GRAPH_CACHE[key] = InMemoryGraph(build_synthetic_fixture_dataset())
+            _OFFLINE_GRAPH_CACHE[key] = InMemoryGraph(
+                build_synthetic_fixture_dataset(),
+                history_path=hist_path,
+            )
         return _OFFLINE_GRAPH_CACHE[key]
 
     ds_path = Path(settings.landslide_dataset_path or "").expanduser().resolve()
-    key = str(ds_path)
+    key = f"{ds_path}::{hist_path or ''}"
     if key not in _OFFLINE_GRAPH_CACHE:
         if not ds_path.exists():
             raise StoreError(f"Configured LANDSLIDE_DATASET_PATH does not exist: {ds_path}")
         try:
             raw = json.loads(ds_path.read_text(encoding="utf-8"))
-            _OFFLINE_GRAPH_CACHE[key] = InMemoryGraph(raw)
+            _OFFLINE_GRAPH_CACHE[key] = InMemoryGraph(raw, history_path=hist_path)
         except Exception as exc:
             raise StoreError(f"Failed to load dataset from {ds_path}: {exc}") from exc
     return _OFFLINE_GRAPH_CACHE[key]

@@ -66,6 +66,18 @@ def _event_year(started_at) -> int | None:
     return int(mm.group(1)) if mm else None
 
 
+def _validate_started_at(v: str | None) -> str | None:
+    if v is None:
+        return None
+    s = _text(v, "started_at", max_len=64)
+    if not re.match(
+        r"^\d{4}-(0[1-9]|1[0-2])(?:-(0[1-9]|[12]\d|3[01])(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?)?$",
+        s,
+    ):
+        raise ToolInputError("started_at must be an ISO-8601 date or timestamp starting with YYYY-MM")
+    return s
+
+
 class Toolbox:
     def __init__(self, store, clock=None, id_factory=None):
         self.store = store
@@ -243,9 +255,12 @@ class Toolbox:
         return [p for p in ids if snap.places[p].type in SETTLEMENTS]
 
     # ------------------------------------------------------------------ 1. apply_closure
-    def apply_closure(self, segment_id, description, cause="landslide", bridge_id=None) -> dict:
+    def apply_closure(self, segment_id, description, cause="landslide", bridge_id=None, started_at=None) -> dict:
         inputs = {"segment_id": segment_id, "description": description, "cause": cause, "bridge_id": bridge_id}
+        if started_at is not None:
+            inputs["started_at"] = started_at
         seg_id, desc, cause = _text(segment_id, "segment_id", 200), _text(description, "description"), _text(cause, "cause", 50)
+        started_ts = _validate_started_at(started_at)
         snap = self._load()
         seg = snap.segments.get(seg_id)
         if seg is None:
@@ -261,15 +276,19 @@ class Toolbox:
         want_bridges = {bridge_id} if bridge_id else set()
         existing = next((e for e in snap.events.values() if e.status == "active" and e.data_status == "simulated"
                          and e.description == desc and set(e.blocks_segments) == {seg_id} and set(e.blocks_bridges) == want_bridges), None)
+        if existing is None and started_ts is not None:
+            existing = next((e for e in snap.events.values() if e.data_status == "simulated"
+                             and e.description == desc and set(e.blocks_segments) == {seg_id}
+                             and set(e.blocks_bridges) == want_bridges and e.started_at == started_ts), None)
         before, warnings = snap.blocked_map(), []
         if existing:
             created, event_id, snap2 = False, existing.id, snap
-            warnings.append(f"An identical active closure ({existing.id}) already exists; nothing was written.")
+            warnings.append(f"An identical closure ({existing.id}) already exists; nothing was written.")
         else:
             event_id = f"sim-{self.new_id()}"
             if event_id in snap.events:
                 raise ToolStateError(f"event id {event_id} already exists")
-            self.store.create_closure(event_id, desc, cause, self.clock(), seg_id, bridge_id)
+            self.store.create_closure(event_id, desc, cause, started_ts or self.clock(), seg_id, bridge_id)
             snap2 = self.store.load_snapshot()  # report the state the graph is actually in
             ev = snap2.events.get(event_id)
             if ev is None or ev.status != "active" or seg_id not in ev.blocks_segments:
@@ -624,8 +643,11 @@ class Toolbox:
         windows = [(s.start_month, s.end_month) for s in seasons]
 
         def ev_row(e):
+            is_sim = e.data_status == "simulated"
             return {"id": e.id, "started_at": e.started_at, "cause": e.cause, "status": e.status, "confidence": e.confidence,
-                    "source_url": e.source_url, "data_status": e.data_status}
+                    "source_url": e.source_url, "data_status": e.data_status, "remembered": bool(e.remembered_at),
+                    "remembered_at": e.remembered_at,
+                    "history_label": "SIMULATED (demonstration scenario)" if is_sim else "OBSERVED (historical report)"}
 
         def split(events):
             obs, sim, other_season, undated = [], [], [], []
@@ -650,11 +672,102 @@ class Toolbox:
             if snap.events.get(eid) and snap.events[eid] not in bridge_events.get(bid, []):
                 bridge_events.setdefault(bid, []).append(snap.events[eid])
 
+        def _in_season_failed_for(kind, ident):
+            out = []
+            for bid, eid, yr in sorted(snap.failed_in):
+                ev = snap.events.get(eid)
+                if not ev:
+                    continue
+                mo = _event_month(ev.started_at)
+                if mo is None or not any(_in_season(wa, wb, mo) for wa, wb in windows):
+                    continue
+                if (kind == "bridge" and bid == ident) or (kind == "segment" and bid in bridges and ident in bridges[bid].segment_ids):
+                    out.append({
+                        "bridge_id": bid,
+                        "event_id": eid,
+                        "year": yr,
+                        "data_status": ev.data_status,
+                        "history_label": "SIMULATED" if ev.data_status == "simulated" else "OBSERVED",
+                    })
+            return out
+
         def make(kind, ident, name, risk, events, extra):
             obs, sim, oth, und = split(events)
-            return {"kind": kind, "id": ident, "name": name, "monsoon_risk": risk, "observed_in_season": obs,
-                    "simulated_in_season": sim, "events_outside_season": oth, "undated_events": und,
-                    "counts": {"observed": len(obs), "simulated": len(sim)}, **extra}
+            bf_in_season = _in_season_failed_for(kind, ident)
+            risk_tier = RISK_RANK.get(risk, 0)
+            obs_count = len(obs)
+            sim_count = len(sim)
+            rem_count = sum(1 for e in obs + sim if e.get("remembered"))
+            bf_obs = sum(1 for f in bf_in_season if f["data_status"] == "observed")
+            bf_sim = sum(1 for f in bf_in_season if f["data_status"] == "simulated")
+            composite_score = (
+                risk_tier * 100
+                + obs_count * 25
+                + sim_count * 10
+                + rem_count * 5
+                + bf_obs * 10
+                + bf_sim * 5
+            )
+            if risk in ("high", "medium") and (obs_count > 0 or sim_count > 0):
+                advisory = "Elevated modeled risk — historical pattern warrants review (not a prediction of future failure)."
+            elif risk in ("high", "medium"):
+                advisory = "Elevated modeled risk from static corridor classification — historical pattern warrants review (not a prediction of future failure)."
+            elif obs_count > 0:
+                advisory = "Historical pattern warrants review based on observed in-season closure record(s); indicates elevated modeled risk (not a prediction of future failure)."
+            else:
+                advisory = "Historical pattern warrants review — includes simulated scenario history [SIMULATED] and/or baseline risk classification (not a prediction of future failure)."
+
+            risk_part = f"monsoon_risk={risk!r} (tier {risk_tier})" if risk else "monsoon_risk='unlabelled' (tier 0)"
+            obs_part = (
+                f"{obs_count} OBSERVED in-season event(s) ["
+                + ", ".join(f"{e['id']} ({e['started_at']}, status={e['status']})" for e in obs)
+                + "]"
+                if obs
+                else "0 observed in-season events"
+            )
+            sim_part = (
+                f"{sim_count} SIMULATED in-season event(s) [SIMULATED — demonstration data: "
+                + ", ".join(f"{e['id']} ({e['started_at']}, status={e['status']}{', remembered' if e.get('remembered') else ''})" for e in sim)
+                + "]"
+                if sim
+                else "0 simulated in-season events"
+            )
+            bf_part = (
+                f"; {len(bf_in_season)} in-season bridge FAILED_IN record(s) ["
+                + ", ".join(f"{f['bridge_id']}->{f['event_id']} ({f['year']}, {f['history_label']})" for f in bf_in_season)
+                + "]"
+                if bf_in_season
+                else ""
+            )
+            evidence_summary = (
+                f"{kind.capitalize()} {ident} ({name or ident}): {risk_part}; {obs_part}; {sim_part}{bf_part}. "
+                f"Composite score={composite_score}. {advisory}"
+            )
+            scoring_breakdown = {
+                "risk_tier": risk_tier,
+                "monsoon_risk_label": risk or "unlabelled",
+                "observed_in_season": obs_count,
+                "simulated_in_season": sim_count,
+                "remembered_in_season": rem_count,
+                "bridge_failures_in_season": len(bf_in_season),
+                "composite_score": composite_score,
+            }
+            return {
+                "kind": kind,
+                "id": ident,
+                "name": name,
+                "monsoon_risk": risk,
+                "observed_in_season": obs,
+                "simulated_in_season": sim,
+                "bridge_failures_in_season": bf_in_season,
+                "events_outside_season": oth,
+                "undated_events": und,
+                "counts": {"observed": obs_count, "simulated": sim_count},
+                "scoring_breakdown": scoring_breakdown,
+                "advisory": advisory,
+                "evidence_summary": evidence_summary,
+                **extra,
+            }
 
         rows = [make("segment", sid, snap.segments[sid].name, snap.segments[sid].monsoon_risk, seg_events.get(sid, []),
                      {"carries_bridges": sorted(b for b, br in bridges.items() if sid in br.segment_ids),
@@ -663,7 +776,17 @@ class Toolbox:
                       {"segments": list(b.segment_ids), "confidence": b.confidence, "source_url": b.source_url})
                  for bid, b in sorted(bridges.items())]
         signal = [r for r in rows if r["monsoon_risk"] in RISK_RANK or r["counts"]["observed"] or r["counts"]["simulated"]]
-        signal.sort(key=lambda r: (-RISK_RANK.get(r["monsoon_risk"], 0), -r["counts"]["observed"], -r["counts"]["simulated"], r["kind"], r["id"]))
+        signal.sort(
+            key=lambda r: (
+                -RISK_RANK.get(r["monsoon_risk"], 0),
+                -r["counts"]["observed"],
+                -r["counts"]["simulated"],
+                -r["scoring_breakdown"]["remembered_in_season"],
+                -r["scoring_breakdown"]["bridge_failures_in_season"],
+                r["kind"],
+                r["id"],
+            )
+        )
         for i, r in enumerate(signal, 1):
             r["rank"] = i
         linked = {e.id for evs in list(seg_events.values()) + list(bridge_events.values()) for e in evs}
@@ -680,12 +803,15 @@ class Toolbox:
         result = {"month": m, "seasons": [{"id": s.id, "name": s.name, "start_month": s.start_month, "end_month": s.end_month}
                                           for s in seasons],
                   "ranking_method": "Lexicographic: (1) monsoon_risk label high>medium>low>unlabelled, (2) number of OBSERVED events "
-                                    "in the season window linked to the item, (3) number of SIMULATED events likewise, (4) id. "
+                                    "in the season window linked to the item, (3) number of SIMULATED events likewise, "
+                                    "(4) remembered in-season count, (5) in-season bridge FAILED_IN count, (6) kind and id. "
+                                    "Composite score = 100*risk_tier + 25*observed + 10*simulated + 5*remembered + 10*obs_bridge_failures + 5*sim_bridge_failures. "
                                     "Only items with a label or at least one in-season event are ranked.",
                   "ranked": signal, "applicable_segments": len(seg_ids), "applicable_bridges": len(bridges),
                   "unranked_applicable_items": len(rows) - len(signal), "observed_events_without_links": unlinked}
         expl = (f"Month {m} falls in {', '.join(s.name or s.id for s in seasons)}. {len(signal)} of {len(rows)} applicable segment/bridge "
-                "item(s) have a risk label or in-season history and are ranked; the rest are unranked, not low-risk.")
+                "item(s) show elevated modeled risk or historical patterns that warrant review; the rest are unranked, not low-risk. "
+                "No future failure is predicted.")
         return self._done("seasonal_risk", inputs, result, expl, self._graph(snap, segment_status={r["id"]: "seasonal_risk" for r in signal if r["kind"] == "segment"}),
                           warnings, self._cypher_only("seasonal-read + in-process ranking"))
 

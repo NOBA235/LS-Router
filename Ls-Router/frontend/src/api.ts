@@ -70,6 +70,7 @@ export interface CreateClosurePayload {
   cause?: string | null;
   max_candidates?: number;
   remember_in_history?: boolean;
+  started_at?: string | null;
 }
 
 export function postClosure(payload: CreateClosurePayload): Promise<ClosureResponse> {
@@ -139,3 +140,12 @@ export function postResolveClosure(
     body: JSON.stringify({ remember_in_history: rememberInHistory }),
   });
 }
+
+export function postRememberClosure(
+  eventId: string,
+): Promise<Record<string, unknown>> {
+  return requestJson<Record<string, unknown>>(`/remember/${encodeURIComponent(eventId)}`, {
+    method: "POST",
+  });
+}
+
