@@ -1,4 +1,4 @@
-"""Run the reproducible 12-step Phase 9 demonstration from the Windows Command Prompt.
+"""Run the reproducible 12-step demonstration from the Windows Command Prompt.
 
 Usage (from repo root, with `backend\\.venv` active):
 

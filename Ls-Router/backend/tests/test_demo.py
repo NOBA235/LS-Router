@@ -137,17 +137,14 @@ def test_run_twelve_step_demo_on_real_nh29_graph() -> None:
         assert draft["sent"] is False
 
 
-def test_phase9_deliverable_files_exist_and_nonempty() -> None:
+def test_deliverable_files_exist_and_nonempty() -> None:
     expected_files = [
-        REPO_ROOT / "docs" / "PHASE9.md",
-        REPO_ROOT / "docs" / "JUDGES_GUIDE.md",
-        REPO_ROOT / "docs" / "BLOG_POST_DRAFT.md",
-        REPO_ROOT / "docs" / "PITCH_DECK_OUTLINE.md",
+        REPO_ROOT / "README.md",
         REPO_ROOT / "scripts" / "run_demo.py",
         REPO_ROOT / "scripts" / "reset_demo.py",
         REPO_ROOT / "backend" / "app" / "demo.py",
     ]
     for path in expected_files:
-        assert path.exists(), f"Missing Phase 9 deliverable: {path}"
+        assert path.exists(), f"Missing deliverable: {path}"
         content = path.read_text(encoding="utf-8")
         assert len(content.strip()) > 200, f"Deliverable {path} is unexpectedly short"

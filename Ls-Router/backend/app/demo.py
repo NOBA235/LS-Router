@@ -1,4 +1,4 @@
-"""Phase 9 reproducible 12-step demonstration runner and clean reset procedure.
+"""Reproducible 12-step demonstration runner and clean reset procedure.
 
 Executes the 12-step demonstration workflow against the active `FalkorStore` (live FalkorDB
 or cached OpenStreetMap NH29 dataset `data/cache/normalized.json`, or the deterministic
@@ -111,7 +111,7 @@ def run_twelve_step_demo(
     *,
     include_weak_links: bool = True,
 ) -> dict[str, Any]:
-    """Execute the reproducible 12-step Phase 9 demonstration against `store` via MCP.
+    """Execute the reproducible 12-step demonstration against `store` via MCP.
 
     Steps:
       1. Show the corridor map and sourced road network.

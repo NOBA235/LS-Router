@@ -1,39 +1,131 @@
 # Landslide Router
 
-Graph-backed landslide-routing prototype for the Dimapur–Kohima corridor (NH29, Nagaland, India). Graph Hacks, Track 1 (FalkorDB).
+Graph-backed landslide-routing and impact-analysis workbench for the **Dimapur–Kohima corridor (NH29, Nagaland, India)**. Built with **FalkorDB**, **Model Context Protocol (MCP)**, **FastAPI**, and **React + MapLibre GL**.
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
-**Current state: Phase 9 Complete (All Phases 0–9 Implemented — Production-Ready Hackathon Submission).** Includes the Phase 0 scaffold, Phase 1 OpenStreetMap Overpass fetch/normalize/seed pipeline (`2,019` real NH29 nodes and `4,177` relationships), Phase 2 graph algorithms & tools (`backend/app/graph`), Phase 3 ambiguity-gated location resolver + agent loop (`backend/app/agent`), Phase 4 official Python MCP server & client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), Phase 5 FastAPI HTTP backend (`backend/app/main.py`), Phase 6 three-pane MapLibre + React workbench (`frontend/src/`), Phase 7 persistent closure history & seasonal risk scoring ([docs/PHASE7.md](docs/PHASE7.md)), Phase 8 provenance inspector, timeline replay, alert export & route comparison ([docs/PHASE8.md](docs/PHASE8.md)), and Phase 9 reproducible 12-step demo, reset procedure, Judge's Guide, blog post draft, and pitch deck outline ([docs/PHASE9.md](docs/PHASE9.md), [docs/JUDGES_GUIDE.md](docs/JUDGES_GUIDE.md)).
+---
 
-## Prerequisites (Windows)
+## Overview
 
-- Docker Desktop (running)
-- Python 3.11 or newer (`py -3 --version`)
-- Node.js 20 LTS or newer (`node --version`)
+During the June–September monsoon season, recurring landslides and rockfalls along National Highway 29 (NH29) disrupt connectivity between the Brahmaputra plains at **Dimapur** and the state capital **Kohima**, as well as surrounding hill villages in Kohima and Phek districts.
 
-Low on RAM? Docker Desktop's WSL 2 backend can take a lot. Cap it in `%UserProfile%\.wslconfig` (`[wsl2]` then `memory=2GB`), then run `wsl --shutdown`. The FalkorDB container is also capped at 1 GB (`FALKORDB_MEM_LIMIT`).
+**Landslide Router** models the corridor as a property graph in **FalkorDB** (`2,019` real OpenStreetMap nodes and `4,177` relationships) and exposes deterministic graph algorithms through an official **Model Context Protocol (MCP)** server:
 
-## Setup and start (Command Prompt)
+- **Ambiguity-Gated Location Resolution**: Natural-language closure reports are resolved against graph landmarks, highway refs, and bridge names. Ambiguous inputs return ranked candidate segments and require operator confirmation before mutating the graph.
+- **Weighted Detour Routing & Baseline Comparison**: Computes shortest-travel-time paths around active closures and compares every segment against the unobstructed baseline route.
+- **Reachability & Hospital Access Impact**: Identifies settlements newly isolated from Dimapur and evaluates hospital reachability across all `24` corridor medical facilities.
+- **Structural Weak Links & Seasonal Risk**: Ranks critical single-point-of-failure segments and bridges using Brandes all-pairs shortest-path betweenness centrality combined with monsoon exposure and historical failure records.
+- **Synthetic Draft Alerts & Audit Trail**: Generates reviewable draft community alerts (`status="draft"`, `sent=false`) and audits graph state against cryptographic SHA-256 baseline fingerprints upon closure resolution.
 
-Run each block from the repo root, in its own window where noted.
+---
+
+## Technical Architecture
+
+```mermaid
+flowchart TB
+    subgraph DataLayer["1. OpenStreetMap & Curated Data Pipeline (data/)"]
+        OSM["Overpass API Fetch\n(data/fetch_osm.py)"]
+        CUR["Curated Risk & Hospital Reference\n(data/curated/*.json)"]
+        NORM["Graph Normalizer & Validator\n(data/osm_normalize.py -> data/cache/normalized.json)"]
+        SEED["Idempotent Cypher Seeder\n(data/seed.py)"]
+        OSM --> NORM
+        CUR --> NORM
+        NORM --> SEED
+    end
+
+    subgraph GraphDB["2. FalkorDB Property Graph (Graph: landslide)"]
+        FALKOR[("FalkorDB (Cloud or Local)\n2,019 Nodes | 4,177 Edges\nPlaces: 814 | RoadSegments: 1,045\nBridges: 126 | Hospitals: 24\nObserved ClosureEvents: 7")]
+        HIST[("Persistent Closure History\n(:ClosureEvent {remembered_at})")]
+        SEED --> FALKOR
+        FALKOR <--> HIST
+    end
+
+    subgraph CoreEngine["3. Graph Store, Snapshot & Algorithms (backend/app/graph/)"]
+        STORE["FalkorStore (store.py)\nParameterized Cypher + Query Log"]
+        SNAP["Immutable Graph Snapshot\n(snapshot.py + SHA-256 Fingerprints)"]
+        ALGO["Graph Algorithms (algorithms.py)\nDijkstra | Reachability | Brandes Betweenness"]
+        TOOLS["12 Deterministic Graph Tools\n(tools.py: Toolbox)"]
+        FALKOR <--> STORE
+        STORE --> SNAP
+        SNAP --> ALGO
+        ALGO --> TOOLS
+    end
+
+    subgraph MCPLayer["4. Model Context Protocol & Agent Layer"]
+        MCPSRV["Official Python MCP Server\n(mcp/server.py — 12 Registered Tools)"]
+        MCPCLI["MCP Tool Client & Handoff Logger\n(backend/app/mcp_bridge/client.py)"]
+        RES["Ambiguity-Gated Location Resolver\n(backend/app/agent/resolver.py)"]
+        ORCH["Graph-Backed Agent Orchestrator\n(backend/app/agent/orchestrator.py)"]
+        TOOLS <--> MCPSRV
+        MCPSRV <-->|"stdio / in-memory MCP"| MCPCLI
+        RES --> ORCH
+        MCPCLI <--> ORCH
+    end
+
+    subgraph APILayer["5. FastAPI HTTP Service (backend/app/main.py)"]
+        API["FastAPI Endpoints\nGET /health, /graph, /weak-links, /seasonal-risk, /history, /replay/{id}\nPOST /closure, /reroute, /resolve/{id}, /remember/{id}, /demo/run, /demo/reset\nGET /cutoff/{id}, /alerts/{id}, /alerts/{id}/export"]
+        PRIV["Privacy & Safety Guardrails\n(privacy.py: Zero-PII & Draft-Only Enforcement)"]
+        ORCH --> API
+        TOOLS --> API
+        PRIV --> API
+    end
+
+    subgraph UILayer["6. Three-Pane Interactive Workbench (frontend/src/)"]
+        LEFT["Left Pane: Simulation Controls,\nAmbiguity Picker, Replay & History"]
+        MAP["Center Pane: MapLibre GL Corridor Map,\nBaseline vs. Detour Overlay & Legend"]
+        RIGHT["Right 'Why?' Pane: Provenance Badges,\nRoute Delta, Draft Alerts & Cypher Log"]
+        API <--> LEFT
+        API <--> MAP
+        API <--> RIGHT
+    end
+```
+
+---
+
+## Quickstart (Windows Command Prompt)
+
+### Prerequisites
+- **Python 3.11+** (`py -3 --version`)
+- **Node.js 20 LTS+** (`node --version`)
+- **FalkorDB**: Either a free **FalkorDB Cloud** instance (recommended for 4 GB RAM laptops — zero local container overhead) or local **Docker Desktop**.
+
+### 1. Configure `.env`
 
 ```bat
 copy .env.example .env
-docker compose up -d
 ```
 
-Backend (window 2):
+Edit `.env` with your FalkorDB connection details:
+- **FalkorDB Cloud (no Docker required)**: Set `FALKORDB_HOST`, `FALKORDB_PORT`, `FALKORDB_USERNAME`, `FALKORDB_PASSWORD`, and `FALKORDB_SSL=false` (or `true` if TLS is enabled on your cloud endpoint).
+- **Local Docker**: Leave defaults (`FALKORDB_HOST=localhost`, `FALKORDB_PORT=6379`) and run `docker compose up -d`.
+
+### 2. Seed the NH29 Graph into FalkorDB
+
+The repository includes the validated OpenStreetMap NH29 corridor dataset at [`data/cache/normalized.json`](data/cache/normalized.json) (`2,019` nodes and `4,177` relationships). To seed (or verify) your FalkorDB instance:
 
 ```bat
 cd backend
 py -3 -m venv .venv
 .venv\Scripts\activate.bat
 python -m pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+cd ..
+python data\seed.py
 ```
 
-Frontend (window 3):
+*(Re-running `python data\seed.py` is idempotent and verifies that `0` duplicate nodes or relationships are created and all 24 graph invariant checks pass.)*
+
+### 3. Start the Backend and Frontend
+
+**Window 1 — FastAPI Backend (`http://127.0.0.1:8000`)**:
+
+```bat
+cd backend
+.venv\Scripts\activate.bat
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+**Window 2 — React + MapLibre Workbench (`http://localhost:5173`)**:
 
 ```bat
 cd frontend
@@ -41,240 +133,97 @@ npm install
 npm run dev
 ```
 
-## Verify
+Open **http://localhost:5173** in your browser. Interactive OpenAPI documentation is available at **http://127.0.0.1:8000/docs**.
 
-| Check | Command / action | Expected |
-|---|---|---|
-| FalkorDB is up | `docker compose exec falkordb redis-cli ping` | `PONG` |
-| Graph query works | `docker compose exec falkordb redis-cli GRAPH.QUERY landslide "RETURN 1"` | a result containing `1` |
-| API health | `curl http://127.0.0.1:8000/health` | JSON with `"status":"ok"`, `falkordb.query_ok: true` (HTTP 503 and `"degraded"` if FalkorDB is down) |
-| API docs | open http://127.0.0.1:8000/docs | Swagger UI |
-| Map | open http://localhost:5173 | Three-pane UI: left controls, center MapLibre corridor graph with legend, right "Why?" provenance & calculation inspector |
-| FalkorDB Browser (optional) | open http://localhost:3000 | Browser UI; connect to host `localhost`, port `6379` |
+---
 
-Backend tests (venv active, from `backend`): `python -m pytest -v`. The `integration` tests need the Docker container and skip themselves if FalkorDB is unreachable.
-Frontend type-check and build (from `frontend`): `npm run build`.
+## Reproducible 3-Minute Demonstration & Clean Reset
 
-## Phase 1: build and seed the graph
+### Automated 12-Step CLI Demonstration (~21 seconds)
 
-Needs the backend venv (`falkordb` package) and FalkorDB running. Details, rules and assumptions: [data/README.md](data/README.md).
-Set `OVERPASS_CONTACT` in `.env` first. Run from the repo root:
-
-```bat
-backend\.venv\Scripts\activate.bat
-python data\fetch_osm.py fetch
-python data\fetch_osm.py normalize
-python data\seed.py --dry-run
-python data\seed.py
-python data\seed.py
-```
-
-- `fetch` talks to the Overpass API once and caches raw JSON in `data\cache\raw` (re-running uses the cache). It prints the `ref` values it found; check that the NH29 road is among them.
-- `normalize` is offline. Read `data\cache\report.md`: it lists what was skipped, what could not be attached to the road network, what is unknown, and any validation errors.
-- `seed` loads the graph and then checks it. Run it twice: the second run must report `0 node(s) and 0 relationship(s)` created.
-- Inspect in FalkorDB Browser (http://localhost:3000) with the queries in `data\queries.cypher`.
-- To rebuild from scratch: `python data\seed.py --reset --yes` (deletes everything in the graph).
-
-Tests (no database or network needed, except `integration` tests that skip themselves without FalkorDB):
-
-```bat
-cd backend
-python -m pytest -v
-```
-
-## Phase 2: the graph tools
-
-Design, semantics and limits: [docs/PHASE2.md](docs/PHASE2.md). **After updating from Phase 1, re-run `normalize` and `seed`** (they now store baseline fingerprints that `audit_closure` needs), then:
-
-```bat
-backend\.venv\Scripts\activate.bat
-cd backend
-pip install -r requirements.txt
-python -m app.graph.cli ids
-python -m app.graph.cli apply_closure "{\"segment_id\": \"<a segment id from 'ids'>\", \"description\": \"test landslide\"}"
-python -m app.graph.cli find_cut_off_places "{\"closure_event_id\": \"<sim-... from the previous output>\"}"
-python -m app.graph.cli clear_closure "{\"event_id\": \"<same id>\"}"
-python -m app.graph.cli audit_closure "{\"event_id\": \"<same id>\"}"
-```
-
-`python -m app.graph.cli probe_capabilities` lists the `algo.*` procedures your FalkorDB build actually has. Tests: `python -m pytest -v` (the `integration`-marked ones need FalkorDB and skip themselves without it).
-
-## Phase 3: the location resolver and graph-backed agent
-
-Design, resolution ladder, ambiguity gating, and provenance schema: [docs/PHASE3.md](docs/PHASE3.md).
-
-Run from `backend\` with the virtualenv active:
-
-```bat
-cd backend
-.venv\Scripts\activate.bat
-python -m app.agent.cli --fixture --demo
-python -m app.agent.cli --fixture "Landslide near NH29 kilometre 42"
-python -m app.agent.cli --fixture --confirm-id seg:s2 "Landslide near NH29 kilometre 42"
-python -m app.agent.cli --fixture --json "Rockfall on Chathe Bridge"
-```
-
-## Phase 4: Model Context Protocol (MCP) server
-
-Architecture, tool schemas, and handoff logging: [docs/PHASE4.md](docs/PHASE4.md) and [mcp/README.md](mcp/README.md).
-
-Run from `backend\` with the virtualenv active:
-
-```bat
-cd backend
-.venv\Scripts\activate.bat
-
-:: 1. Discover all 12 MCP tools over stdio child process:
-python -m app.mcp_bridge.cli --fixture --transport stdio list-tools
-
-:: 2. Invoke a single tool through MCP ClientSession:
-python -m app.mcp_bridge.cli --fixture --transport stdio call find_weak_links "{\"corridor_id\": \"corr-synthetic\", \"top_k\": 3}"
-
-:: 3. Run the end-to-end multi-step demonstration through MCP:
-python -m app.mcp_bridge.cli --fixture --transport stdio demo
-```
-
-When FalkorDB is running and seeded (or using `--dataset ..\data\cache\normalized_corridor.json` offline):
-
-```bat
-python -m app.mcp_bridge.cli demo
-python -m app.agent.cli --mcp-transport stdio "Landslide near NH29 kilometre 42"
-```
-
-## Phase 5: FastAPI HTTP backend
-
-Design, endpoints, ambiguity gating, and error codes: [docs/PHASE5.md](docs/PHASE5.md).
-
-Start the backend from `backend\` with `.venv` active (set `LANDSLIDE_USE_FIXTURE=1` if testing offline without Docker):
-
-```bat
-cd backend
-.venv\Scripts\activate.bat
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-Interactive OpenAPI documentation is served at http://127.0.0.1:8000/docs. Example `curl` requests:
-
-```bat
-curl http://127.0.0.1:8000/graph
-curl -X POST http://127.0.0.1:8000/closure -H "Content-Type: application/json" -d "{\"description\": \"Landslide near NH29 kilometre 42\"}"
-curl http://127.0.0.1:8000/weak-links?top_k=5
-curl http://127.0.0.1:8000/seasonal-risk?month=july
-```
-
-## Phase 6: Three-pane interactive frontend
-
-Design, map layers, and feature provenance inspector: [docs/PHASE6.md](docs/PHASE6.md).
-
-From `frontend\`:
-
-```bat
-cd frontend
-npm run build
-npm run dev
-```
-
-Open http://localhost:5173 to use the three-pane workspace (left controls & incident log, center MapLibre corridor graph with legend and topology overlay, right "Why?" provenance and Cypher inspector).
-
-## Phase 7: Historical memory and seasonal risk
-
-Design, persistent history storage, idempotency rules, and seasonal risk scoring formula: [docs/PHASE7.md](docs/PHASE7.md).
-
-Example endpoints for closure archiving and historical audit:
-
-```bat
-curl -X POST http://127.0.0.1:8000/remember/<event_id>
-curl http://127.0.0.1:8000/history
-curl http://127.0.0.1:8000/seasonal-risk?month=july
-```
-
-## Phase 8: Polish (Confidence Badges, Provenance Inspection, Timeline Replay, Alert Export & Route Comparison)
-
-Design, timeline replay, draft alert-plan exports, and side-by-side baseline comparison: [docs/PHASE8.md](docs/PHASE8.md).
-
-Example endpoints for timeline replay and draft alert-plan export:
-
-```bat
-curl http://127.0.0.1:8000/history
-curl http://127.0.0.1:8000/replay/<event_id>
-curl "http://127.0.0.1:8000/alerts/<event_id>/export?format=json&replay=true"
-curl -OJ "http://127.0.0.1:8000/alerts/<event_id>/export?format=text&replay=true"
-```
-
-## Phase 9: Reproducible 3-Minute Demo, Clean Reset & Judge's Assets
-
-Full documentation, architecture diagram, verified claims checklist, and limitations statement:
-- **Phase 9 Reference**: [docs/PHASE9.md](docs/PHASE9.md)
-- **Judge's Guide**: [docs/JUDGES_GUIDE.md](docs/JUDGES_GUIDE.md)
-- **Technical Blog Post Draft**: [docs/BLOG_POST_DRAFT.md](docs/BLOG_POST_DRAFT.md)
-- **Pitch Deck Outline**: [docs/PITCH_DECK_OUTLINE.md](docs/PITCH_DECK_OUTLINE.md)
-
-### Run the 12-Step Reproducible Demo (~21 seconds, under 3-minute budget)
-
-From the repo root with `backend\.venv` active:
+Run all 12 demonstration steps end-to-end through the MCP tool bridge:
 
 ```bat
 backend\.venv\Scripts\activate.bat
 
-:: Against live FalkorDB (Cloud or local Docker configured in .env):
+:: Against live FalkorDB (configured in .env):
 python scripts\run_demo.py
 
-:: Or zero-Docker / offline against the cached 2,019-node OpenStreetMap NH29 dataset:
+:: Or offline against the cached 2,019-node OpenStreetMap NH29 dataset:
 python scripts\run_demo.py --dataset data\cache\normalized.json
 ```
 
-Or trigger via the running FastAPI backend:
+### The 12 Demonstration Steps & Verified Real-Graph Outputs
 
-```bat
-curl -X POST http://127.0.0.1:8000/demo/run
-curl -X POST http://127.0.0.1:8000/demo/reset
-```
+| Step | Action | Verified NH29 Graph Output |
+|---|---|---|
+| **1** | **Show corridor map & sourced road network** | Loads `nh29-dimapur-kohima` with **`814` places** (`93` villages, `10` towns, `711` junctions), **`1,045` road segments** (`294` on NH29 covering `189.521 km`), **`126` bridges**, **`24` hospitals**, and **`7` historical closures**. Baseline Dimapur → Kohima route: **`125.2 min`** (`70.101 km` across `53` segments). |
+| **2** | **Enter simulated landslide location** | Natural-language input `"Landslide at NH29 near kilometre 42."` returns `status="ambiguous"` (`requires_clarification=true`) with **`5` candidate NH29 segments**, preventing blind graph mutation. |
+| **3** | **Show resolved road segment & confidence** | Confirms trunk segment `seg-569069510-569069527-1353575333` (`confidence="derived"`, OpenStreetMap `way/1353575333`) and branch segment `seg-2469699767-6286548534-239157848` between `Kezo Town` and `Chakhabama`. |
+| **4** | **Apply closure via MCP (`apply_closure`)** | Creates simulated `:ClosureEvent` nodes in FalkorDB (`status="active"`, `data_status="simulated"`) linked via `[:BLOCKS]` relationships. |
+| **5** | **Show reachability & hospital access impact** | Branch closure newly cuts off **`3` settlements** (**`Kezo Town`**, **`Kikruma`**, **`Chakhabama`** — `4` total places including `junction-6286548534`) from Dimapur (`808 / 812` places remain reachable; `2` disconnected OSM nodes are separated as pre-existing baseline islands). |
+| **6** | **Calculate weighted alternate route (`reroute`)** | Reroutes Dimapur → Kohima around the blocked NH29 trunk segment across **`67` unblocked segments** (`status="rerouted"`). |
+| **7** | **Show total estimated travel time & detour** | Baseline **`125.2 min` (`70.101 km`)** → Detour **`215.23 min` (`100.511 km`)**, adding **`+90.03 min` (`+30.41 km`)**. Invariant checks verify `segment_times_sum_to_total=true` and `no_selected_segment_is_blocked=true`. |
+| **8** | **Draft community alerts (`draft_alerts`)** | Generates **`3` synthetic SMS draft alerts** for `Kezo Town`, `Kikruma`, and `Chakhabama` (`status="draft"`, `sent=false`). |
+| **9** | **Inspect graph paths & tool queries** | Exposes all **`15` MCP tool invocations**, parameterized Cypher statements, and per-segment route contributions in the `"Why?"` inspector. |
+| **10** | **Display weak links & seasonal risk evidence** | Identifies top structural weak-link segment `seg-569069510-569069527-1353575333` (`betweenness=0.458767`) and top bridge `bridge-way-1073679103` (`betweenness=0.457556`), alongside July monsoon seasonal risk rankings. |
+| **11** | **Resolve closure (`clear_closure`)** | Marks active simulated closures `status="resolved"` with `ended_at` timestamps; active blocked segments return to `{}`. |
+| **12** | **Audit resulting graph state (`audit_closure`)** | Verifies `returned_to_baseline=true`, `other_active_closures=[]`, and `discrepancies=[]` against stored SHA-256 baseline fingerprints. |
 
-### Clean Setup & Reset Procedure
+### Clean Reset Procedure
+
+To clear any active simulated closures and verify baseline restoration at any time:
 
 ```bat
 backend\.venv\Scripts\activate.bat
-
-:: 1. Resolve all active simulated closures and audit baseline restoration:
 python scripts\reset_demo.py
-
-:: 2. Or wipe and re-seed the entire FalkorDB graph from validated data/cache/normalized.json:
-python data\seed.py --reset --yes
-python data\seed.py
 ```
 
-## Stop
-
-Press Ctrl+C in the backend and frontend windows, then from the repo root:
+Or via HTTP:
 
 ```bat
-docker compose down
+curl -X POST http://127.0.0.1:8000/demo/reset
 ```
 
-Graph data lives in the `falkordb_data` volume and survives `down`. `docker compose down -v` deletes it.
+---
 
-## Basemap and attribution
+## Model Context Protocol (MCP) & CLI Tools
 
-The map uses the keyless [OpenFreeMap](https://openfreemap.org) "liberty" vector style, which is built from OpenStreetMap data. MapLibre shows the required attribution automatically; do not hide it. The public OpenFreeMap service is best-effort with no availability guarantee. To switch, set `VITE_MAP_STYLE_URL` in `.env` to any MapLibre style URL you are licensed to use (self-hosted, or a provider with an API key; never commit keys). MapLibre GL JS itself supplies no tiles.
+The MCP server ([`mcp/server.py`](mcp/server.py)) registers all 12 graph tools over standard MCP `stdio` transport:
+`apply_closure`, `clear_closure`, `audit_closure`, `find_cut_off_places`, `find_unreachable_hospitals`, `reroute`, `explain_path`, `find_weak_links`, `seasonal_risk`, `draft_alerts`, `remember_closure`, and `probe_capabilities`.
 
-The basemap is general context. It is **not** the project's road graph and must not be read as verified NH29 data.
+```bat
+cd backend
+.venv\Scripts\activate.bat
 
-## Layout
+:: List all 12 registered MCP tools over stdio:
+python -m app.mcp_bridge.cli --fixture --transport stdio list-tools
 
-```
-backend/    FastAPI app (app/), graph tools, agent, MCP bridge, demo runner, tests/
-frontend/   Vite + React + TypeScript + MapLibre GL JS three-pane workbench
-data/       Phase 1: fetch_osm.py, osm_normalize.py, seed.py, queries.cypher, curated/, cache/
-mcp/        Standalone Model Context Protocol (MCP) server entrypoint (server.py)
-scripts/    Reproducible 12-step demo runner (run_demo.py) and clean reset script (reset_demo.py)
-docs/       Phase documentation, Judge's Guide, Blog Post Draft, Pitch Deck Outline
-docker-compose.yml   FalkorDB (falkordb/falkordb, includes Browser UI)
+:: Run an end-to-end MCP tool handoff trace:
+python -m app.mcp_bridge.cli --fixture --transport stdio demo
 ```
 
-## Phase 0 notes
+---
 
-- `/api/*` is proxied by Vite to `127.0.0.1:8000`, so no CORS setup is needed in development.
-- No password is set on FalkorDB; both ports are bound to `127.0.0.1` only.
-- `falkordb/falkordb:latest` is unpinned. Record the tested version (`docker image inspect falkordb/falkordb:latest`) and pin it in `.env` before the final demo.
-- Python and npm dependencies use lower-bound versions; pin after a working install.
-- The health check's `RETURN 1` creates an empty graph named `landslide` if it does not exist.
+## Testing & Verification
+
+```bat
+:: Backend unit and real-graph test suite:
+cd backend
+.venv\Scripts\activate.bat
+pytest -q
+
+:: Frontend TypeScript check and production bundle build:
+cd ..\frontend
+npm run build
+```
+
+---
+
+## Limitations & Safety Scope
+
+1. **Planning Aid, Not Emergency Dispatch**: Designed for scenario simulation, infrastructure vulnerability analysis, and communication drafting — not real-time life-safety dispatch.
+2. **Assumed Speed-By-Road-Class Travel Times**: OpenStreetMap ways rarely include verified commercial fleet speed telemetry in Nagaland; segment travel times are derived from geodesic length and road-class speed assumptions (`travel_time_basis="assumed_speed_by_highway"`).
+3. **Static Snapshot Without Live Telemetry**: Does not ingest real-time GPS probe traffic, live rainfall-gauge feeds, or real-time Border Roads Organisation (BRO) field barriers.
+4. **Nearest-Road-Vertex Hospital Snapping**: Hospitals are attached to their nearest road graph vertex (`method="nearest_road_vertex"`, max `2,000 m`); last-mile off-road access tracks are not modeled.
+5. **Draft-Only Alerts**: All generated community alerts are strictly synthetic drafts (`status="draft"`, `sent=false`). No SMS, email, or webhook dispatch is performed.

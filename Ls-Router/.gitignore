@@ -10,4 +10,8 @@ dist/
 *.log
 Thumbs.db
 .DS_Store
+/package-lock.json
+docs/
+data/cache/raw/
+data/cache/report.md
 data/cache/runtime_history.json*
