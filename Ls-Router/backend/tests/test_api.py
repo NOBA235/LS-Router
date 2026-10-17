@@ -520,3 +520,4 @@ def test_store_error_returns_503_service_unavailable():
             assert "FalkorDB connection refused" in body["error"]["message"]
     finally:
         app.dependency_overrides.clear()
+

@@ -4,7 +4,7 @@ Graph-backed landslide-routing prototype for the Dimapur–Kohima corridor (NH29
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
-**Current state: Phase 5 (FastAPI HTTP Backend).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), and the Phase 5 FastAPI HTTP backend (`backend/app/main.py`). The frontend map still shows no project data until Phase 6.
+**Current state: Phase 6 (Three-Pane Interactive Frontend).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), the Phase 5 FastAPI HTTP backend (`backend/app/main.py`), and the Phase 6 three-pane MapLibre + React frontend (`frontend/src/`).
 
 ## Prerequisites (Windows)
 
@@ -49,7 +49,7 @@ npm run dev
 | Graph query works | `docker compose exec falkordb redis-cli GRAPH.QUERY landslide "RETURN 1"` | a result containing `1` |
 | API health | `curl http://127.0.0.1:8000/health` | JSON with `"status":"ok"`, `falkordb.query_ok: true` (HTTP 503 and `"degraded"` if FalkorDB is down) |
 | API docs | open http://127.0.0.1:8000/docs | Swagger UI |
-| Map | open http://localhost:5173 | Basemap framed on Dimapur–Kohima, "No corridor data loaded" notice, green backend status line |
+| Map | open http://localhost:5173 | Three-pane UI: left controls, center MapLibre corridor graph with legend, right "Why?" provenance & calculation inspector |
 | FalkorDB Browser (optional) | open http://localhost:3000 | Browser UI; connect to host `localhost`, port `6379` |
 
 Backend tests (venv active, from `backend`): `python -m pytest -v`. The `integration` tests need the Docker container and skip themselves if FalkorDB is unreachable.
@@ -161,6 +161,20 @@ curl -X POST http://127.0.0.1:8000/closure -H "Content-Type: application/json" -
 curl http://127.0.0.1:8000/weak-links?top_k=5
 curl http://127.0.0.1:8000/seasonal-risk?month=july
 ```
+
+## Phase 6: Three-pane interactive frontend
+
+Design, map layers, and feature provenance inspector: [docs/PHASE6.md](docs/PHASE6.md).
+
+From `frontend\`:
+
+```bat
+cd frontend
+npm run build
+npm run dev
+```
+
+Open http://localhost:5173 to use the three-pane workspace (left controls & incident log, center MapLibre corridor graph with legend and topology overlay, right "Why?" provenance and Cypher inspector).
 
 ## Stop
 
