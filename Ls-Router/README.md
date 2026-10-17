@@ -4,7 +4,7 @@ Graph-backed landslide-routing prototype for the Dimapur–Kohima corridor (NH29
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
-**Current state: Phase 8 (Polish — Confidence Badges, Provenance Inspection, Timeline Replay, Alert Export & Route Comparison).** Phase 0 scaffold, the Phase 1 OpenStreetMap fetch/normalize/seed pipeline, the Phase 2 eleven graph tools (`backend/app/graph`), the Phase 3 natural-language location resolver + agent loop (`backend/app/agent`), the Phase 4 MCP server + client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), the Phase 5 FastAPI HTTP backend (`backend/app/main.py`), the Phase 6 three-pane MapLibre + React frontend (`frontend/src/`), the Phase 7 persistent closure history, idempotency protection, and seasonal risk scoring (`docs/PHASE7.md`), and the Phase 8 confidence badges, data-source inspector, closure timeline replay, draft alert-plan export, and side-by-side alternative-route comparison (`docs/PHASE8.md`).
+**Current state: Phase 9 Complete (All Phases 0–9 Implemented — Production-Ready Hackathon Submission).** Includes the Phase 0 scaffold, Phase 1 OpenStreetMap Overpass fetch/normalize/seed pipeline (`2,019` real NH29 nodes and `4,177` relationships), Phase 2 graph algorithms & tools (`backend/app/graph`), Phase 3 ambiguity-gated location resolver + agent loop (`backend/app/agent`), Phase 4 official Python MCP server & client handoff bridge (`mcp/` and `backend/app/mcp_bridge`), Phase 5 FastAPI HTTP backend (`backend/app/main.py`), Phase 6 three-pane MapLibre + React workbench (`frontend/src/`), Phase 7 persistent closure history & seasonal risk scoring ([docs/PHASE7.md](docs/PHASE7.md)), Phase 8 provenance inspector, timeline replay, alert export & route comparison ([docs/PHASE8.md](docs/PHASE8.md)), and Phase 9 reproducible 12-step demo, reset procedure, Judge's Guide, blog post draft, and pitch deck outline ([docs/PHASE9.md](docs/PHASE9.md), [docs/JUDGES_GUIDE.md](docs/JUDGES_GUIDE.md)).
 
 ## Prerequisites (Windows)
 
@@ -201,6 +201,48 @@ curl "http://127.0.0.1:8000/alerts/<event_id>/export?format=json&replay=true"
 curl -OJ "http://127.0.0.1:8000/alerts/<event_id>/export?format=text&replay=true"
 ```
 
+## Phase 9: Reproducible 3-Minute Demo, Clean Reset & Judge's Assets
+
+Full documentation, architecture diagram, verified claims checklist, and limitations statement:
+- **Phase 9 Reference**: [docs/PHASE9.md](docs/PHASE9.md)
+- **Judge's Guide**: [docs/JUDGES_GUIDE.md](docs/JUDGES_GUIDE.md)
+- **Technical Blog Post Draft**: [docs/BLOG_POST_DRAFT.md](docs/BLOG_POST_DRAFT.md)
+- **Pitch Deck Outline**: [docs/PITCH_DECK_OUTLINE.md](docs/PITCH_DECK_OUTLINE.md)
+
+### Run the 12-Step Reproducible Demo (~21 seconds, under 3-minute budget)
+
+From the repo root with `backend\.venv` active:
+
+```bat
+backend\.venv\Scripts\activate.bat
+
+:: Against live FalkorDB (Cloud or local Docker configured in .env):
+python scripts\run_demo.py
+
+:: Or zero-Docker / offline against the cached 2,019-node OpenStreetMap NH29 dataset:
+python scripts\run_demo.py --dataset data\cache\normalized.json
+```
+
+Or trigger via the running FastAPI backend:
+
+```bat
+curl -X POST http://127.0.0.1:8000/demo/run
+curl -X POST http://127.0.0.1:8000/demo/reset
+```
+
+### Clean Setup & Reset Procedure
+
+```bat
+backend\.venv\Scripts\activate.bat
+
+:: 1. Resolve all active simulated closures and audit baseline restoration:
+python scripts\reset_demo.py
+
+:: 2. Or wipe and re-seed the entire FalkorDB graph from validated data/cache/normalized.json:
+python data\seed.py --reset --yes
+python data\seed.py
+```
+
 ## Stop
 
 Press Ctrl+C in the backend and frontend windows, then from the repo root:
@@ -220,10 +262,12 @@ The basemap is general context. It is **not** the project's road graph and must 
 ## Layout
 
 ```
-backend/    FastAPI app (app/), tests/, requirements.txt
-frontend/   Vite + React + TypeScript + MapLibre GL JS
-data/       Phase 1: fetch_osm.py, osm_normalize.py, seed.py, queries.cypher, curated/ (see data/README.md)
-mcp/        reserved for Phase 4
+backend/    FastAPI app (app/), graph tools, agent, MCP bridge, demo runner, tests/
+frontend/   Vite + React + TypeScript + MapLibre GL JS three-pane workbench
+data/       Phase 1: fetch_osm.py, osm_normalize.py, seed.py, queries.cypher, curated/, cache/
+mcp/        Standalone Model Context Protocol (MCP) server entrypoint (server.py)
+scripts/    Reproducible 12-step demo runner (run_demo.py) and clean reset script (reset_demo.py)
+docs/       Phase documentation, Judge's Guide, Blog Post Draft, Pitch Deck Outline
 docker-compose.yml   FalkorDB (falkordb/falkordb, includes Browser UI)
 ```
 

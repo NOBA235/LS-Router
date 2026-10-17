@@ -623,7 +623,7 @@ class Toolbox:
             raise ToolNotFoundError(f"corridor_id: unknown corridor {corridor_id!r} (known: {sorted(snap.corridors())})")
         sub = self._restrict(snap, {k for k, s in snap.segments.items() if s.corridor_id == corridor_id})
         G, cls = A.routing_graph(sub, set())
-        cen, usage, art = A.centrality(G), A.pair_usage(G), A.articulation_places(G)
+        cen, art = A.centrality(G), A.articulation_places(G)
         origin = snap.reference("dimapur")
         warnings = self._coverage_warnings(sub, cls) + [
             "Betweenness measures how many modelled shortest paths use a segment, bridge or place. It is NOT a failure probability, "
@@ -634,6 +634,7 @@ class Toolbox:
             warnings.append("Reference place 'dimapur' is not in this corridor subgraph; per-segment cut-off effects are omitted.")
         seg_scores = {sid: cen["segments"].get(sid, 0.0) for sid in {d["segment_id"] for _, _, d in G.edges(data=True)}}
         ranked = sorted(seg_scores.items(), key=lambda kv: (-kv[1], kv[0]))[:top_k]
+        usage = A.pair_usage(G, target_segments={sid for sid, _ in ranked})
         base_components = len(A.weak_components(G))
         segs = []
         for i, (sid, score) in enumerate(ranked, 1):

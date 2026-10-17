@@ -126,31 +126,62 @@ def route_length_km(snap: Snapshot, r: dict) -> float | None:
     return round(math.fsum(vals), 3)
 
 
+_CENTRALITY_CACHE: dict[tuple, dict] = {}
+_PAIR_USAGE_CACHE: dict[tuple, dict] = {}
+
+
+def _graph_signature(G: nx.DiGraph) -> tuple:
+    return (
+        tuple(G.nodes()),
+        tuple((u, v, d.get("w"), d.get("segment_id")) for u, v, d in G.edges(data=True)),
+    )
+
+
 def centrality(G: nx.DiGraph) -> dict:
     """Shortest-path (Brandes) betweenness on the travel-time-weighted directed graph, normalized by NetworkX.
     Segment score = sum over its directed edges (both directions of a two-way segment)."""
+    sig = _graph_signature(G)
+    cached = _CENTRALITY_CACHE.get(sig)
+    if cached is not None:
+        return cached
     nodes = nx.betweenness_centrality(G, weight="w", normalized=True)
     edges = nx.edge_betweenness_centrality(G, weight="w", normalized=True)
     seg: dict = defaultdict(float)
     for (u, v), score in edges.items():
         seg[G[u][v]["segment_id"]] += score
-    return {"nodes": nodes, "segments": dict(seg)}
+    res = {"nodes": nodes, "segments": dict(seg)}
+    if len(_CENTRALITY_CACHE) < 8:
+        _CENTRALITY_CACHE[sig] = res
+    return res
 
 
-def pair_usage(G: nx.DiGraph) -> dict:
+def pair_usage(G: nx.DiGraph, target_segments: set | None = None) -> dict:
     """segment_id -> {'pairs': n, 'examples': [(origin, destination, path nodes)]} over all ordered pairs, one shortest
     path per pair. A count of single chosen paths: related to, but not the same number as, betweenness (which splits ties)."""
+    sig = (_graph_signature(G), frozenset(target_segments) if target_segments is not None else None)
+    cached = _PAIR_USAGE_CACHE.get(sig)
+    if cached is not None:
+        return cached
+    edge_seg = {(u, v): d["segment_id"] for u, v, d in G.edges(data=True)}
+    if target_segments is not None:
+        edge_seg = {k: sid for k, sid in edge_seg.items() if sid in target_segments}
     usage: dict = defaultdict(lambda: {"pairs": 0, "examples": []})
     for s, paths in sorted(nx.all_pairs_dijkstra_path(G, weight="w")):
         for t, nodes in sorted(paths.items()):
             if s == t:
                 continue
             for u, v in zip(nodes, nodes[1:]):
-                u_ = usage[G[u][v]["segment_id"]]
+                sid = edge_seg.get((u, v))
+                if sid is None:
+                    continue
+                u_ = usage[sid]
                 u_["pairs"] += 1
                 if len(u_["examples"]) < 3:
                     u_["examples"].append((s, t, nodes))
-    return dict(usage)
+    res = dict(usage)
+    if len(_PAIR_USAGE_CACHE) < 8:
+        _PAIR_USAGE_CACHE[sig] = res
+    return res
 
 
 def articulation_places(G: nx.DiGraph) -> set:

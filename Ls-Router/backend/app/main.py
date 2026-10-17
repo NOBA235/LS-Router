@@ -1211,3 +1211,37 @@ def replay_closure_endpoint(
     }
     return sanitize_payload(payload)
 
+
+# ---------------------------------------------------------------------------
+# 12. POST /demo/reset & POST /demo/run (Phase 9 Reproducible Demo & Reset)
+# ---------------------------------------------------------------------------
+@app.post(
+    "/demo/reset",
+    tags=["demo"],
+    summary="Resolve all active simulated closures and audit return to baseline",
+)
+def reset_demo_endpoint(store: FalkorStore = Depends(get_store)) -> dict[str, Any]:
+    """Resolve all active simulated closures on the graph and verify baseline restoration."""
+    from .demo import reset_demo_state
+
+    return sanitize_payload(reset_demo_state(store))
+
+
+@app.post(
+    "/demo/run",
+    tags=["demo"],
+    summary="Execute the reproducible 12-step demonstration workflow against the active graph",
+)
+def run_demo_endpoint(
+    include_weak_links: bool = Query(
+        default=True,
+        description="Include full shortest-path betweenness centrality ranking in Step 10.",
+    ),
+    store: FalkorStore = Depends(get_store),
+) -> dict[str, Any]:
+    """Run all 12 steps of the reproducible demonstration workflow and return verified results."""
+    from .demo import run_twelve_step_demo
+
+    return sanitize_payload(run_twelve_step_demo(store, include_weak_links=include_weak_links))
+
+
