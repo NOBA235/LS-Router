@@ -517,10 +517,10 @@ input[type="number"] {
 }
 
 .swatch-line.nh29 {
-  background: #263238;
+  background: #1e293b;
 }
 .swatch-line.secondary {
-  background: #607d8b;
+  background: #8aa0b4;
 }
 .swatch-line.schematic {
   background: repeating-linear-gradient(
@@ -532,16 +532,16 @@ input[type="number"] {
   );
 }
 .swatch-line.blocked {
-  background: #c62828;
+  background: #ef4444;
 }
 .swatch-line.route {
-  background: #1565c0;
+  background: #2563eb;
 }
 .swatch-line.weak {
-  background: #ef6c00;
+  background: #f97316;
 }
 .swatch-line.seasonal {
-  background: #6a1b9a;
+  background: #7c3aed;
 }
 
 .swatch-dot {
@@ -555,25 +555,25 @@ input[type="number"] {
 }
 
 .swatch-dot.ref {
-  background: #0d47a1;
+  background: #1d4ed8;
 }
 .swatch-dot.reach {
-  background: #2e7d32;
+  background: #22c55e;
 }
 .swatch-dot.cutoff {
-  background: #d32f2f;
+  background: #ef4444;
 }
 .swatch-dot.junction {
-  background: #455a64;
+  background: #64748b;
 }
 .swatch-dot.hosp-ok {
-  background: #00695c;
+  background: #0d9488;
 }
 .swatch-dot.hosp-bad {
-  background: #b71c1c;
+  background: #dc2626;
 }
 .swatch-dot.bridge {
-  background: #5d4037;
+  background: #92400e;
 }
 
 .legend-hint {

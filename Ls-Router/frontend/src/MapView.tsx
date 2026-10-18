@@ -33,6 +33,89 @@ const INTERACTIVE_LAYERS = [
   "segments-topo-line",
 ];
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type Expr = any;
+
+// Scales a base size (number or expression) with zoom so nodes/roads stay readable at every level.
+function zoomScale(base: Expr, lo: number, hi: number): Expr {
+  return ["interpolate", ["linear"], ["zoom"], 8, ["*", base, lo], 14, ["*", base, hi]];
+}
+
+const GLOW_STATES = ["blocked", "route", "weak_link", "baseline_route", "seasonal_high"];
+
+const ROAD_COLOR: Expr = [
+  "match",
+  ["get", "visual_state"],
+  "blocked", "#ef4444",
+  "route", "#2563eb",
+  "weak_link", "#f97316",
+  "seasonal_high", "#7c3aed",
+  "seasonal_medium", "#a855f7",
+  "baseline_route", "#0891b2",
+  "nh29", "#1e293b",
+  "#8aa0b4",
+];
+
+const ROAD_WIDTH: Expr = [
+  "case",
+  ["boolean", ["get", "is_selected"], false],
+  7,
+  [
+    "match",
+    ["get", "visual_state"],
+    "blocked", 5.5,
+    "route", 5,
+    "weak_link", 4.5,
+    "seasonal_high", 4.5,
+    "seasonal_medium", 4,
+    "nh29", 3.4,
+    2.2,
+  ],
+];
+
+const ROAD_WIDTH_PLUS_CASING: Expr = ["+", ROAD_WIDTH, 2.4];
+
+const PLAIN_JUNCTION: Expr = [
+  "all",
+  ["==", ["get", "place_type"], "junction"],
+  ["==", ["get", "reach_state"], "reachable"],
+];
+
+const PLACE_COLOR: Expr = [
+  "match",
+  ["get", "reach_state"],
+  "cut_off", "#ef4444",
+  "baseline_unreachable", "#94a3b8",
+  "route_endpoint", "#2563eb",
+  "weak_link", "#f97316",
+  "reference", "#1d4ed8",
+  ["match", ["get", "place_type"], "town", "#15803d", "village", "#22c55e", "#64748b"],
+];
+
+const PLACE_RADIUS: Expr = [
+  "case",
+  ["boolean", ["get", "is_selected"], false],
+  10,
+  ["match", ["get", "place_type"], "town", 8.5, "village", 6.5, 4.2],
+];
+
+const BRIDGE_COLOR: Expr = [
+  "match",
+  ["get", "bridge_state"],
+  "blocked", "#ef4444",
+  "weak_link", "#f97316",
+  "seasonal", "#7c3aed",
+  "#92400e",
+];
+
+const HOSPITAL_COLOR: Expr = [
+  "match",
+  ["get", "hosp_state"],
+  "unreachable", "#dc2626",
+  "unattached", "#94a3b8",
+  "#0d9488",
+];
+
 function validCoord(lon: number | null | undefined, lat: number | null | undefined): boolean {
   return (
     typeof lon === "number" &&
@@ -508,55 +591,44 @@ export default function MapView({
       map.addSource("hospitals", { type: "geojson", data: empty });
       map.addSource("closures", { type: "geojson", data: empty });
 
-      // 1. Stored road geometry layer (solid lines)
+      // 1a. Soft glow under highlighted roads (blocked / route / weak link / baseline route)
+      map.addLayer({
+        id: "segments-geom-glow",
+        type: "line",
+        source: "segments-geom",
+        filter: ["in", ["get", "visual_state"], ["literal", GLOW_STATES]],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": ROAD_COLOR,
+          "line-width": zoomScale(14, 0.7, 1.6),
+          "line-blur": 6,
+          "line-opacity": 0.4,
+        },
+      });
+
+      // 1b. White casing so roads stand out from the basemap
+      map.addLayer({
+        id: "segments-geom-casing",
+        type: "line",
+        source: "segments-geom",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": zoomScale(ROAD_WIDTH_PLUS_CASING, 0.6, 1.3),
+          "line-opacity": 0.9,
+        },
+      });
+
+      // 1c. Stored road geometry layer (solid lines)
       map.addLayer({
         id: "segments-geom-line",
         type: "line",
         source: "segments-geom",
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": [
-            "match",
-            ["get", "visual_state"],
-            "blocked",
-            "#c62828",
-            "route",
-            "#1565c0",
-            "weak_link",
-            "#ef6c00",
-            "seasonal_high",
-            "#6a1b9a",
-            "seasonal_medium",
-            "#9c27b0",
-            "baseline_route",
-            "#00838f",
-            "nh29",
-            "#263238",
-            "#607d8b",
-          ],
-          "line-width": [
-            "case",
-            ["boolean", ["get", "is_selected"], false],
-            7,
-            [
-              "match",
-              ["get", "visual_state"],
-              "blocked",
-              5.5,
-              "route",
-              5,
-              "weak_link",
-              4.5,
-              "seasonal_high",
-              4.5,
-              "seasonal_medium",
-              4,
-              "nh29",
-              3.2,
-              2.2,
-            ],
-          ],
-          "line-opacity": 0.92,
+          "line-color": ROAD_COLOR,
+          "line-width": zoomScale(ROAD_WIDTH, 0.6, 1.3),
+          "line-opacity": 0.96,
         },
       });
 
@@ -567,45 +639,10 @@ export default function MapView({
         source: "segments-topo",
         layout: { "line-cap": "butt", "line-join": "round" },
         paint: {
-          "line-color": [
-            "match",
-            ["get", "visual_state"],
-            "blocked",
-            "#c62828",
-            "route",
-            "#1565c0",
-            "weak_link",
-            "#ef6c00",
-            "seasonal_high",
-            "#6a1b9a",
-            "seasonal_medium",
-            "#9c27b0",
-            "baseline_route",
-            "#00838f",
-            "nh29",
-            "#37474f",
-            "#546e7a",
-          ],
-          "line-width": [
-            "case",
-            ["boolean", ["get", "is_selected"], false],
-            6,
-            [
-              "match",
-              ["get", "visual_state"],
-              "blocked",
-              4.5,
-              "route",
-              4.5,
-              "weak_link",
-              4,
-              "seasonal_high",
-              4,
-              3,
-            ],
-          ],
+          "line-color": ROAD_COLOR,
+          "line-width": zoomScale(ROAD_WIDTH, 0.5, 1.1),
           "line-dasharray": [2, 2],
-          "line-opacity": 0.88,
+          "line-opacity": 0.85,
         },
       });
 
@@ -615,55 +652,47 @@ export default function MapView({
         type: "line",
         source: "hospital-links",
         paint: {
-          "line-color": "#00695c",
+          "line-color": "#0d9488",
           "line-width": 1.5,
           "line-dasharray": [1, 2],
           "line-opacity": 0.7,
         },
       });
 
-      // 4. Places (villages, towns, junctions)
+      // 4a. Place halos (soft glow; plain junctions are skipped to keep the map clean)
+      map.addLayer({
+        id: "places-halo",
+        type: "circle",
+        source: "places",
+        filter: [
+          "any",
+          ["!=", ["get", "place_type"], "junction"],
+          ["!=", ["get", "reach_state"], "reachable"],
+        ],
+        paint: {
+          "circle-radius": zoomScale(["+", PLACE_RADIUS, 7], 0.7, 1.5),
+          "circle-color": PLACE_COLOR,
+          "circle-opacity": 0.25,
+          "circle-blur": 0.9,
+        },
+      });
+
+      // 4b. Places (villages, towns, junctions). Plain junctions fade in as you zoom.
       map.addLayer({
         id: "places-circle",
         type: "circle",
         source: "places",
         paint: {
-          "circle-radius": [
-            "case",
-            ["boolean", ["get", "is_selected"], false],
-            10,
-            [
-              "match",
-              ["get", "place_type"],
-              "town",
-              8,
-              "village",
-              6.5,
-              4.5,
-            ],
-          ],
-          "circle-color": [
-            "match",
-            ["get", "reach_state"],
-            "cut_off",
-            "#d32f2f",
-            "baseline_unreachable",
-            "#78909c",
-            "route_endpoint",
-            "#1565c0",
-            "weak_link",
-            "#ef6c00",
-            "reference",
-            "#0d47a1",
-            [
-              "match",
-              ["get", "place_type"],
-              "town",
-              "#1b5e20",
-              "village",
-              "#2e7d32",
-              "#455a64",
-            ],
+          "circle-radius": zoomScale(PLACE_RADIUS, 0.7, 1.5),
+          "circle-color": PLACE_COLOR,
+          "circle-opacity": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            9,
+            ["case", PLAIN_JUNCTION, 0, 1],
+            11.5,
+            1,
           ],
           "circle-stroke-width": [
             "case",
@@ -671,77 +700,151 @@ export default function MapView({
             3,
             ["==", ["get", "reach_state"], "cut_off"],
             2.5,
-            1.5,
+            1.6,
           ],
           "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            9,
+            ["case", PLAIN_JUNCTION, 0, 1],
+            11.5,
+            1,
+          ],
         },
       });
 
-      // 5. Bridges
+      // 5a. Bridge halos
+      map.addLayer({
+        id: "bridges-halo",
+        type: "circle",
+        source: "bridges",
+        paint: {
+          "circle-radius": zoomScale(14, 0.7, 1.4),
+          "circle-color": BRIDGE_COLOR,
+          "circle-opacity": 0.22,
+          "circle-blur": 0.9,
+        },
+      });
+
+      // 5b. Bridges
       map.addLayer({
         id: "bridges-circle",
         type: "circle",
         source: "bridges",
         paint: {
-          "circle-radius": [
-            "case",
-            ["boolean", ["get", "is_selected"], false],
-            9,
-            6.5,
-          ],
-          "circle-color": [
-            "match",
-            ["get", "bridge_state"],
-            "blocked",
-            "#c62828",
-            "weak_link",
-            "#ef6c00",
-            "seasonal",
-            "#6a1b9a",
-            "#5d4037",
-          ],
+          "circle-radius": zoomScale(
+            ["case", ["boolean", ["get", "is_selected"], false], 9, 6.5],
+            0.75,
+            1.35,
+          ),
+          "circle-color": BRIDGE_COLOR,
           "circle-stroke-width": 2,
           "circle-stroke-color": "#fff8e1",
         },
       });
 
-      // 6. Hospitals
+      // 6a. Hospital halos
+      map.addLayer({
+        id: "hospitals-halo",
+        type: "circle",
+        source: "hospitals",
+        paint: {
+          "circle-radius": zoomScale(17, 0.7, 1.4),
+          "circle-color": HOSPITAL_COLOR,
+          "circle-opacity": 0.25,
+          "circle-blur": 0.9,
+        },
+      });
+
+      // 6b. Hospitals
       map.addLayer({
         id: "hospitals-circle",
         type: "circle",
         source: "hospitals",
         paint: {
-          "circle-radius": [
-            "case",
-            ["boolean", ["get", "is_selected"], false],
-            10,
-            7.5,
-          ],
-          "circle-color": [
-            "match",
-            ["get", "hosp_state"],
-            "unreachable",
-            "#b71c1c",
-            "unattached",
-            "#757575",
-            "#00695c",
-          ],
-          "circle-stroke-width": 2.2,
+          "circle-radius": zoomScale(
+            ["case", ["boolean", ["get", "is_selected"], false], 10, 7.5],
+            0.8,
+            1.4,
+          ),
+          "circle-color": HOSPITAL_COLOR,
+          "circle-stroke-width": 2.5,
           "circle-stroke-color": "#ffffff",
         },
       });
 
-      // 7. Active Closures
+      // 7a. Closure pulse ring (animated, see the pulse effect below)
+      map.addLayer({
+        id: "closures-pulse",
+        type: "circle",
+        source: "closures",
+        paint: {
+          "circle-radius": 12,
+          "circle-color": "#ef4444",
+          "circle-opacity": 0.4,
+          "circle-blur": 0.3,
+        },
+      });
+
+      // 7b. Active closures
       map.addLayer({
         id: "closures-circle",
         type: "circle",
         source: "closures",
         paint: {
           "circle-radius": 9,
-          "circle-color": "#b71c1c",
+          "circle-color": "#dc2626",
           "circle-stroke-width": 3,
-          "circle-stroke-color": "#ffeb3b",
+          "circle-stroke-color": "#fde047",
         },
+      });
+
+      // 8. Name labels (non-interactive); villages and hospitals appear as you zoom in
+      const labelPaint: Expr = {
+        "text-color": "#1e293b",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.6,
+      };
+      const labelLayout: Expr = {
+        "text-field": ["get", "label"],
+        "text-font": ["Noto Sans Regular"],
+        "text-anchor": "top",
+        "text-offset": [0, 0.9],
+        "text-optional": true,
+      };
+      map.addLayer({
+        id: "places-label-major",
+        type: "symbol",
+        source: "places",
+        minzoom: 8,
+        filter: [
+          "any",
+          ["==", ["get", "place_type"], "town"],
+          ["==", ["get", "reach_state"], "cut_off"],
+          ["==", ["get", "reach_state"], "reference"],
+          ["==", ["get", "reach_state"], "route_endpoint"],
+        ],
+        layout: { ...labelLayout, "text-size": 12.5 },
+        paint: labelPaint,
+      });
+      map.addLayer({
+        id: "places-label-village",
+        type: "symbol",
+        source: "places",
+        minzoom: 11,
+        filter: ["==", ["get", "place_type"], "village"],
+        layout: { ...labelLayout, "text-size": 11 },
+        paint: labelPaint,
+      });
+      map.addLayer({
+        id: "hospitals-label",
+        type: "symbol",
+        source: "hospitals",
+        minzoom: 11.5,
+        layout: { ...labelLayout, "text-size": 10.5, "text-offset": [0, 1.1] },
+        paint: { ...labelPaint, "text-color": "#0f766e" },
       });
 
       // Click handler across interactive layers
@@ -795,6 +898,25 @@ export default function MapView({
     setSourceData("hospitals", geojsonData.hospitals);
     setSourceData("closures", geojsonData.closures);
   }, [geojsonData, mapReady]);
+
+  // Gentle pulsing ring around active closure markers (skipped for reduced-motion users)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = ((now - start) % 1800) / 1800;
+      if (map.getLayer("closures-pulse")) {
+        map.setPaintProperty("closures-pulse", "circle-radius", 10 + 18 * t);
+        map.setPaintProperty("closures-pulse", "circle-opacity", 0.5 * (1 - t));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [mapReady]);
 
   // Fit bounds when dataset first loads or switches
   useEffect(() => {
