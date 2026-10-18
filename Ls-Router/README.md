@@ -4,6 +4,8 @@ Graph-backed landslide-routing and impact-analysis workbench for the **Dimapur�
 
 > **Planning aid, not emergency dispatch.** Routes and risk estimates are based on available data and simulations. Verify conditions with official authorities before acting.
 
+![Landslide Router Workbench — Dimapur–Kohima NH29 Corridor Graph](assets/landslide-router-workbench.png)
+
 ---
 
 ## Overview
