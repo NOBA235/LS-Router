@@ -940,6 +940,34 @@ export default function App() {
                 </button>
               </form>
 
+              {logEntries[0]?.clarificationCandidates && (
+                <div className="clarification-box" role="region" aria-label="Ambiguous location clarification">
+                  <strong>Clarification Required (Graph Not Modified):</strong>
+                  <p className="log-detail">{logEntries[0].detail}</p>
+                  <div className="chip-row">
+                    {logEntries[0].clarificationCandidates.segments.map((cand) => (
+                      <button
+                        key={cand.segment_id}
+                        type="button"
+                        className="btn-chip confirm-chip"
+                        disabled={loading}
+                        onClick={() => {
+                          setTargetSegmentId(cand.segment_id);
+                          void submitClosure(
+                            logEntries[0].clarificationCandidates!.originalDescription,
+                            cand.segment_id,
+                            null,
+                          );
+                        }}
+                      >
+                        Confirm {cand.segment_id} ({cand.from_place_name || cand.from_place_id}
+                        →{cand.to_place_name || cand.to_place_id})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Quick Scenario Presets */}
               <div className="preset-group">
                 <span className="preset-label">Quick Test Scenarios:</span>
@@ -957,6 +985,38 @@ export default function App() {
                   >
                     NH29 km 42 (Ambiguous)
                   </button>
+                  {graph?.segments.some((s) => s.id === "seg-569069510-569069527-1353575333") && (
+                    <button
+                      type="button"
+                      className="btn-chip"
+                      disabled={loading}
+                      onClick={() => {
+                        const sid = "seg-569069510-569069527-1353575333";
+                        const desc = "Landslide on NH29 trunk near Piphema (seg-569069510-569069527-1353575333)";
+                        setIncidentText(desc);
+                        setTargetSegmentId(sid);
+                        void submitClosure(desc, sid, null);
+                      }}
+                    >
+                      NH29 Trunk Detour (+90 min)
+                    </button>
+                  )}
+                  {graph?.segments.some((s) => s.id === "seg-2469699767-6286548534-239157848") && (
+                    <button
+                      type="button"
+                      className="btn-chip"
+                      disabled={loading}
+                      onClick={() => {
+                        const sid = "seg-2469699767-6286548534-239157848";
+                        const desc = "Landslide on NH29 between Kezo Town and Chakhabama";
+                        setIncidentText(desc);
+                        setTargetSegmentId(sid);
+                        void submitClosure(desc, sid, null);
+                      }}
+                    >
+                      Kezo Town–Chakhabama (Cut Off 3 Villages)
+                    </button>
+                  )}
                   {sampleSegments.map((s) => (
                     <button
                       key={s.id}
