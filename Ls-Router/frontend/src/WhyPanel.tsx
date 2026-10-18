@@ -974,294 +974,90 @@ export default function WhyPanel({
               </div>
             )}
 
-            <h4>Hospital Access from Cut-Off Settlements</h4>
             {cutoff.hospital_reachability.per_settlement.length === 0 ? (
               <p className="muted-note">
                 No settlement (village/town) is newly cut off from Dimapur.
               </p>
             ) : (
-              <div className="table-wrapper scroller">
-                <table
-                  className="data-table"
-                  style={
-                    {
-                      "--label-1": '"Settlement"',
-                      "--label-2": '"Hospital"',
-                      "--label-3": '"Status"',
-                      "--label-4": '"Est. Time"',
-                    } as React.CSSProperties
-                  }
-                >
-                  <thead>
-                    <tr>
-                      <th>Settlement</th>
-                      <th>Hospital</th>
-                      <th>Status</th>
-                      <th>Est. Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cutoff.hospital_reachability.per_settlement.flatMap((s) =>
-                      s.hospitals.map((h) => (
-                        <tr key={`${s.village_id}-${h.hospital_id}`}>
-                          <th>
-                            <button
-                              type="button"
-                              className="inline-link"
-                              onClick={() =>
-                                onSelectFeature({ kind: "place", id: s.village_id })
-                              }
-                            >
-                              {s.name || s.village_id}
-                            </button>
-                          </th>
-                          <td>
-                            <button
-                              type="button"
-                              className="inline-link"
-                              onClick={() =>
-                                onSelectFeature({ kind: "hospital", id: h.hospital_id })
-                              }
-                            >
-                              {h.hospital_name || h.hospital_id}
-                            </button>
-                          </td>
-                          <td>
-                            <StatusBadge value={h.status} />
-                          </td>
-                          <td>
-                            {h.travel_time_min != null
-                              ? `${h.travel_time_min} min`
-                              : "unreachable"}
-                            {h.baseline_travel_time_min != null &&
-                              ` (base: ${h.baseline_travel_time_min}m)`}
-                          </td>
-                        </tr>
-                      )),
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* 3. Alternate Route & Baseline Comparison */}
-        {reroute && (
-          <section className="card">
-            <h3>
-              Alternative-Route Comparison ({placeName(reroute.from_place_id)} →{" "}
-              {placeName(reroute.to_place_id)})
-            </h3>
-
-            {/* Side-by-Side Comparison Grid */}
-            <div className="comparison-grid">
-              <div className="subcard">
-                <strong>Baseline Route (Open Network)</strong>
-                {reroute.baseline_route ? (
-                  <dl className="kv-list">
-                    <div>
-                      <dt>Travel Time</dt>
-                      <dd>
-                        <strong>{reroute.baseline_route.total_travel_time_min} min</strong>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Distance</dt>
-                      <dd>
-                        {reroute.baseline_route.total_length_km != null
-                          ? `${reroute.baseline_route.total_length_km} km`
-                          : "unknown"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Segments</dt>
-                      <dd>
-                        <code>
-                          {reroute.baseline_route.segments.map((s) => s.segment_id).join(" → ")}
-                        </code>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Nodes</dt>
-                      <dd>
-                        <code>{reroute.baseline_route.node_names.join(" → ")}</code>
-                      </dd>
-                    </div>
-                  </dl>
-                ) : (
-                  <p className="muted-note">No baseline route between these places.</p>
-                )}
-              </div>
-
-              <div
-                className={`subcard ${
-                  reroute.status === "route_found" ? "info-subcard" : "danger-subcard"
-                }`}
-              >
-                <strong>
-                  Active / Detour Route{" "}
-                  {reroute.avoid_event_id ? `(avoiding ${reroute.avoid_event_id})` : ""}
-                </strong>
-                {reroute.route ? (
-                  <dl className="kv-list">
-                    <div>
-                      <dt>Travel Time</dt>
-                      <dd>
-                        <strong>{reroute.route.total_travel_time_min} min</strong>
-                        {reroute.additional_travel_time_min != null && (
-                          <span className="detour-delta">
-                            {" "}
-                            ({reroute.additional_travel_time_min >= 0 ? "+" : ""}
-                            {reroute.additional_travel_time_min} min)
-                          </span>
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Distance</dt>
-                      <dd>
-                        {reroute.route.total_length_km != null
-                          ? `${reroute.route.total_length_km} km`
-                          : "unknown"}
-                        {baseComp?.detour_length_delta_km != null && (
-                          <span>
-                            {" "}
-                            ({baseComp.detour_length_delta_km >= 0 ? "+" : ""}
-                            {baseComp.detour_length_delta_km} km)
-                          </span>
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Segments</dt>
-                      <dd>
-                        <code>
-                          {reroute.route.segments.map((s) => s.segment_id).join(" → ")}
-                        </code>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Nodes</dt>
-                      <dd>
-                        <code>{reroute.route.node_names.join(" → ")}</code>
-                      </dd>
-                    </div>
-                  </dl>
-                ) : (
-                  <p className="muted-note">
-                    <StatusBadge value="no_route" /> {reroute.reason || "No directed path exists."}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {baseComp && !baseComp.same_as_baseline && (
-              <div className="subcard warn-subcard">
-                <div>
-                  <strong>Detour Segment Diff vs. Baseline:</strong>
-                </div>
-                {baseComp.segments_avoided_from_baseline.length > 0 && (
-                  <div>
-                    Avoided baseline segment(s):{" "}
-                    {baseComp.segments_avoided_from_baseline.map((sid) => (
-                      <button
-                        key={sid}
-                        type="button"
-                        className="entity-chip danger"
-                        onClick={() => onSelectFeature({ kind: "segment", id: sid })}
-                      >
-                        − {sid}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {baseComp.segments_added_in_detour.length > 0 && (
-                  <div>
-                    Added detour segment(s):{" "}
-                    {baseComp.segments_added_in_detour.map((sid) => (
-                      <button
-                        key={sid}
-                        type="button"
-                        className="entity-chip"
-                        onClick={() => onSelectFeature({ kind: "segment", id: sid })}
-                      >
-                        + {sid}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {reroute.path_explanation.contributions &&
-              reroute.path_explanation.contributions.length > 0 && (
-                <>
-                  <h4>Selected Route Segment Breakdown (Dijkstra Minimum Travel Time)</h4>
-                  <div className="table-wrapper scroller">
-                    <table
-                      className="data-table"
-                      style={
-                        {
-                          "--label-1": '"Segment"',
-                          "--label-2": '"From → To"',
-                          "--label-3": '"Time (Share)"',
-                          "--label-4": '"Basis / Conf."',
-                        } as React.CSSProperties
-                      }
-                    >
-                      <thead>
-                        <tr>
-                          <th>Segment</th>
-                          <th>From → To</th>
-                          <th>Time (Share)</th>
-                          <th>Basis / Conf.</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reroute.path_explanation.contributions.map((c, idx) => (
-                          <tr key={`${c.segment_id}-${idx}`}>
+              <details>
+                <summary>
+                  Hospital Access from Cut-Off Settlements (
+                  {cutoff.hospital_reachability.per_settlement.length} settlement(s) ×{" "}
+                  {cutoff.hospital_reachability.per_hospital.length} hospitals)
+                </summary>
+                <div className="table-wrapper scroller">
+                  <table
+                    className="data-table"
+                    style={
+                      {
+                        "--label-1": '"Settlement"',
+                        "--label-2": '"Hospital"',
+                        "--label-3": '"Status"',
+                        "--label-4": '"Est. Time"',
+                      } as React.CSSProperties
+                    }
+                  >
+                    <thead>
+                      <tr>
+                        <th>Settlement</th>
+                        <th>Hospital</th>
+                        <th>Status</th>
+                        <th>Est. Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cutoff.hospital_reachability.per_settlement.flatMap((s) =>
+                        s.hospitals.map((h) => (
+                          <tr key={`${s.village_id}-${h.hospital_id}`}>
                             <th>
                               <button
                                 type="button"
                                 className="inline-link"
                                 onClick={() =>
-                                  onSelectFeature({ kind: "segment", id: c.segment_id })
+                                  onSelectFeature({ kind: "place", id: s.village_id })
                                 }
                               >
-                                {c.segment_id}
+                                {s.name || s.village_id}
                               </button>
                             </th>
                             <td>
-                              {c.from} → {c.to}
+                              <button
+                                type="button"
+                                className="inline-link"
+                                onClick={() =>
+                                  onSelectFeature({ kind: "hospital", id: h.hospital_id })
+                                }
+                              >
+                                {h.hospital_name || h.hospital_id}
+                              </button>
                             </td>
                             <td>
-                              {c.travel_time_min} min (
-                              {c.share_of_total != null
-                                ? `${(c.share_of_total * 100).toFixed(0)}%`
-                                : "n/a"}
-                              )
+                              <StatusBadge value={h.status} />
                             </td>
                             <td>
-                              <code>{c.travel_time_basis ?? "?"}</code> /{" "}
-                              <ConfidenceBadge value={c.confidence} />
+                              {h.travel_time_min != null
+                                ? `${h.travel_time_min} min`
+                                : "unreachable"}
+                              {h.baseline_travel_time_min != null &&
+                                ` (base: ${h.baseline_travel_time_min}m)`}
                             </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
+                        )),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
           </section>
         )}
 
-        {/* 4. Synthetic Draft Alerts & Export */}
+        {/* 3. Synthetic Draft Alerts & Export (SMS) */}
         {alerts && (
-          <section className="card">
+          <section className="card highlight-card">
             <div className="section-title-row">
               <h3>
-                Synthetic Community Draft Alerts (<code>{alerts.event_id}</code>)
+                Synthetic Community Draft Alerts — SMS (<code>{alerts.event_id}</code>)
               </h3>
               <div className="btn-row">
                 <button
@@ -1324,6 +1120,205 @@ export default function WhyPanel({
                 <pre className="code-block">{exportedTextPreview}</pre>
               </details>
             )}
+          </section>
+        )}
+
+        {/* 4. Alternate Route & Baseline Comparison */}
+        {reroute && (
+          <section className="card">
+            <h3>
+              Alternative-Route Comparison ({placeName(reroute.from_place_id)} →{" "}
+              {placeName(reroute.to_place_id)})
+            </h3>
+
+            {/* Side-by-Side Comparison Grid */}
+            <div className="comparison-grid">
+              <div className="subcard">
+                <strong>Baseline Route (Open Network)</strong>
+                {reroute.baseline_route ? (
+                  <dl className="kv-list">
+                    <div>
+                      <dt>Travel Time</dt>
+                      <dd>
+                        <strong>{reroute.baseline_route.total_travel_time_min} min</strong>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Distance</dt>
+                      <dd>
+                        {reroute.baseline_route.total_length_km != null
+                          ? `${reroute.baseline_route.total_length_km} km`
+                          : "unknown"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Hops</dt>
+                      <dd>{reroute.baseline_route.segments.length} road segments</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="muted-note">No baseline route between these places.</p>
+                )}
+              </div>
+
+              <div
+                className={`subcard ${
+                  reroute.status === "route_found" ? "info-subcard" : "danger-subcard"
+                }`}
+              >
+                <strong>
+                  Active / Detour Route{" "}
+                  {reroute.avoid_event_id ? `(avoiding ${reroute.avoid_event_id})` : ""}
+                </strong>
+                {reroute.route ? (
+                  <dl className="kv-list">
+                    <div>
+                      <dt>Travel Time</dt>
+                      <dd>
+                        <strong>{reroute.route.total_travel_time_min} min</strong>
+                        {reroute.additional_travel_time_min != null && (
+                          <span className="detour-delta">
+                            {" "}
+                            ({reroute.additional_travel_time_min >= 0 ? "+" : ""}
+                            {reroute.additional_travel_time_min} min)
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Distance</dt>
+                      <dd>
+                        {reroute.route.total_length_km != null
+                          ? `${reroute.route.total_length_km} km`
+                          : "unknown"}
+                        {baseComp?.detour_length_delta_km != null && (
+                          <span>
+                            {" "}
+                            ({baseComp.detour_length_delta_km >= 0 ? "+" : ""}
+                            {baseComp.detour_length_delta_km} km)
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Hops</dt>
+                      <dd>{reroute.route.segments.length} road segments</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="muted-note">
+                    <StatusBadge value="no_route" /> {reroute.reason || "No directed path exists."}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {baseComp && !baseComp.same_as_baseline && (
+              <div className="subcard warn-subcard">
+                <div>
+                  <strong>Detour Segment Diff vs. Baseline:</strong>
+                </div>
+                {baseComp.segments_avoided_from_baseline.length > 0 && (
+                  <div>
+                    Avoided baseline segment(s):{" "}
+                    {baseComp.segments_avoided_from_baseline.map((sid) => (
+                      <button
+                        key={sid}
+                        type="button"
+                        className="entity-chip danger"
+                        onClick={() => onSelectFeature({ kind: "segment", id: sid })}
+                      >
+                        − {sid}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {baseComp.segments_added_in_detour.length > 0 && (
+                  <div>
+                    Added detour segment(s) ({baseComp.segments_added_in_detour.length}):{" "}
+                    {baseComp.segments_added_in_detour.slice(0, 8).map((sid) => (
+                      <button
+                        key={sid}
+                        type="button"
+                        className="entity-chip"
+                        onClick={() => onSelectFeature({ kind: "segment", id: sid })}
+                      >
+                        + {sid}
+                      </button>
+                    ))}
+                    {baseComp.segments_added_in_detour.length > 8 && (
+                      <span className="muted-note">
+                        {" "}
+                        +{baseComp.segments_added_in_detour.length - 8} more
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {reroute.path_explanation.contributions &&
+              reroute.path_explanation.contributions.length > 0 && (
+                <details>
+                  <summary>
+                    Selected Route Segment Breakdown — Dijkstra Minimum Travel Time (
+                    {reroute.path_explanation.contributions.length} segments)
+                  </summary>
+                  <div className="table-wrapper scroller">
+                    <table
+                      className="data-table"
+                      style={
+                        {
+                          "--label-1": '"Segment"',
+                          "--label-2": '"From → To"',
+                          "--label-3": '"Time (Share)"',
+                          "--label-4": '"Basis / Conf."',
+                        } as React.CSSProperties
+                      }
+                    >
+                      <thead>
+                        <tr>
+                          <th>Segment</th>
+                          <th>From → To</th>
+                          <th>Time (Share)</th>
+                          <th>Basis / Conf.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reroute.path_explanation.contributions.map((c, idx) => (
+                          <tr key={`${c.segment_id}-${idx}`}>
+                            <th>
+                              <button
+                                type="button"
+                                className="inline-link"
+                                onClick={() =>
+                                  onSelectFeature({ kind: "segment", id: c.segment_id })
+                                }
+                              >
+                                {c.segment_id}
+                              </button>
+                            </th>
+                            <td>
+                              {c.from} → {c.to}
+                            </td>
+                            <td>
+                              {c.travel_time_min} min (
+                              {c.share_of_total != null
+                                ? `${(c.share_of_total * 100).toFixed(0)}%`
+                                : "n/a"}
+                              )
+                            </td>
+                            <td>
+                              <code>{c.travel_time_basis ?? "?"}</code> /{" "}
+                              <ConfidenceBadge value={c.confidence} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
           </section>
         )}
 

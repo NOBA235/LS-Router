@@ -236,6 +236,10 @@ export default function App() {
         setCutoff(cutoffData);
         setResolveAudit(null);
 
+        const alertsData = await postDraftAlerts(eventId);
+        setAlerts(alertsData);
+        setExportedTextPreview(null);
+
         const originId =
           routeFromId ||
           updatedGraph?.places.find((p) => p.reference_key === "dimapur")?.id ||
@@ -246,8 +250,10 @@ export default function App() {
           "";
 
         let routeSummary = "";
-        let combinedCypher = [...res.cypher, ...cutoffData.cypher];
-        let combinedWarnings = Array.from(new Set([...res.warnings, ...cutoffData.warnings]));
+        let combinedCypher = [...res.cypher, ...cutoffData.cypher, ...alertsData.cypher];
+        let combinedWarnings = Array.from(
+          new Set([...res.warnings, ...cutoffData.warnings, ...alertsData.warnings]),
+        );
 
         if (originId && destId) {
           const rerouteData = await fetchReroute(originId, destId, eventId);
@@ -274,7 +280,7 @@ export default function App() {
         appendLog({
           role: "system",
           title: `Closure ${eventId} Applied on ${blockedSegId}`,
-          detail: `${cutoffData.explanation}${routeSummary}`,
+          detail: `${cutoffData.explanation}${routeSummary} (${alertsData.alerts.length} SMS alert draft(s) ready).`,
           eventId,
         });
       } catch (err) {
