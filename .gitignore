@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+*.log
+Thumbs.db
+.DS_Store
+/package-lock.json
+docs/
+data/cache/raw/
+data/cache/report.md
+data/cache/runtime_history.json*
