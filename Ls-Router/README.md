@@ -148,20 +148,6 @@ A blockage on a mountain road does not just cause delays—it can cut off access
 
 ---
 
-## 🎯 3-Minute Live Demonstration Walkthrough
-
-| Step | User Action | Live System Output |
-|---|---|---|
-| **Step 1: Baseline Corridor** | Open workbench at `http://localhost:5173`. | Displays `814` places, `1,045` segments, `24` hospitals, `126` bridges. Baseline Dimapur → Kohima: **`125.2 min`** (`70.1 km`). |
-| **Step 2: Ambiguity Safety** | Click **Scenario 1: NH29 km 42 (Ambiguous)** or type *"Landslide near km 42"*. | Status: `ambiguous`. Returns **5 candidate segments**; graph remains unmutated until operator confirms. |
-| **Step 3: High-Impact Detour** | Click **Scenario 2: NH29 Trunk Detour (+90 min)**. | Blocks trunk segment `seg-569069510-569069527-1353575333`. Dijkstra reroutes via Medziphema bypass: **`215.23 min` (`+90 min detour`)**. |
-| **Step 4: Village Isolation & SMS** | Click **Scenario 3: Kezo Town–Chakhabama (Cut Off 3 Villages)**. | Newly isolates **3 villages** (`Kezo Town`, `Kikruma`, `Chakhabama`). Automatically generates **3 SMS draft alerts** at the top of the Right Pane! |
-| **Step 5: Hospital Impact** | Expand **Hospital Access Matrix** in Right Pane. | Evaluates access from all 3 isolated settlements to `24` hospitals (0 usable routes remaining). |
-| **Step 6: Historical Replay** | Click **Replay** on event `#1 (2024-08 Dzüza Landslide)`. | Replays historical Dzüza mudslide impact, displaying verified historical road blocks and detours. |
-| **Step 7: Resolution & Audit** | Click **Clear & Audit Baseline** on active closures. | Marks closures resolved. Graph audit runs SHA-256 fingerprint checks: **`returned_to_baseline: true` (PASS)**. |
-
----
-
 ## 🛠️ Quickstart Guide
 
 ### Prerequisites
@@ -220,13 +206,13 @@ Open **`http://localhost:5173`** in your browser. Interactive OpenAPI documentat
 
 ## 🧪 Testing & Verification
 
-Run the full automated test suite (unit tests, real-graph integration checks, MCP bridge, and reproducible demo runner):
+Run the full automated test suite (unit tests, real-graph integration checks, and MCP tool verification):
 
 ```bash
 cd backend
 .venv\Scripts\activate.bat
 
-# Run the 12-step reproducible demo in ~20 seconds:
+# Run the end-to-end corridor test suite:
 python ..\scripts\run_demo.py
 
 # Run the full pytest suite:
@@ -251,3 +237,4 @@ Developed for community resilience, academic research, and disaster risk reducti
 <div align="center">
   <sub>Built with ❤️ for the communities of Kohima, Dimapur, and Nagaland. Powered by FalkorDB & Model Context Protocol.</sub>
 </div>
+
